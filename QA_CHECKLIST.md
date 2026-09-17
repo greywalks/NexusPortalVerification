@@ -6,23 +6,26 @@ Status key: **reviewed** (read and assessed), **changed** (modified in this bran
 
 | Area | Files | Status | Notes |
 | --- | --- | --- | --- |
-| Application bootstrap, headers, error handling | `Application.cfc` | changed / static | Origin check, correlation IDs, upload cleanup, runtime-root fix. |
-| Routing, auth helpers, config API, invoice API, NonConforming API, downloads | `index.cfm` | changed / static | POST-only config, validation errors, throttle, admin feedback. |
-| Authentication and permissions | `services/AuthService.cfc`, `LuceeAuthService.cfc` | changed / static | PBKDF2 hashing, bootstrap guard, username/password policy. |
-| Reference data | `services/ConfigService.cfc`, `config/*.json` | changed / static | Validation, atomic writes. JSON defaults checked for duplicates/negatives (none). |
-| Invoice math (AMC, Philips, TCL, FedEx, Storage, Workshop) | `services/InvoiceService.cfc`, `InvoiceWorkbookService.cfc`, `PhilipsReportService.cfc`, `template/layouts/*.xlsx` | reviewed; Storage include path changed / static | Rounding is HALF_EVEN and `Math.rint`, matching Python `round()`. Fixture workbooks have no external links or `#REF!`. |
+| Application bootstrap, headers, error handling | `Application.cfc` | changed / CI | Origin check, correlation IDs, upload cleanup; runtime-root fix is static (QA step 7). |
+| Routing, auth helpers, config API, invoice API, NonConforming API, downloads | `index.cfm` | changed / CI | POST-only config, validation errors, throttle, admin feedback. |
+| Authentication and permissions | `services/AuthService.cfc`, `LuceeAuthService.cfc` | changed / CI | PBKDF2 hashing, bootstrap guard, username/password policy. |
+| Reference data | `services/ConfigService.cfc`, `config/*.json` | changed / CI | Validation, atomic writes. JSON defaults checked for duplicates/negatives (none). |
+| Invoice math (AMC, Philips, TCL, FedEx, Storage, Workshop) | `services/InvoiceService.cfc`, `InvoiceWorkbookService.cfc`, `PhilipsReportService.cfc`, `template/layouts/*.xlsx` | reviewed; billing fixtures and parity suite pass in CI; Storage non-empty include path static | Rounding is HALF_EVEN and `Math.rint`, matching Python `round()`. Fixture workbooks have no external links or `#REF!`. |
 | Excel I/O | `services/ExcelService.cfc` | changed / static | Stream leak on unreadable upload. |
-| NonConforming | `services/NonConformingService.cfc`, `LuceeNonConformingService.cfc` | changed / static | Export filename suffix. Number generation already serializable. |
-| Training Tracker | `routes/TrainingRoutes.cfm`, `services/LuceeTrainingService.cfc`, `TrainingImportService.cfc`, `TrainingPdfService.cfc` | changed / static | Generated keys, week-number lock, video 404. Output encoding reviewed: consistent. |
-| Inventory Management | `routes/InventoryRoutes.cfm`, `services/InventoryService.cfc` | changed / static | CSV injection guard, runtime-root fix. Output encoding reviewed: consistent. |
+| NonConforming | `services/NonConformingService.cfc`, `LuceeNonConformingService.cfc` | changed / CI | Export filename suffix. Number generation already serializable. |
+| Training Tracker | `routes/TrainingRoutes.cfm`, `services/LuceeTrainingService.cfc`, `TrainingImportService.cfc`, `TrainingPdfService.cfc` | changed / CI | Generated keys, week-number lock, video 404. Output encoding reviewed: consistent. |
+| Inventory Management | `routes/InventoryRoutes.cfm`, `services/InventoryService.cfc` | changed / CI (runtime-root fix static) | CSV injection guard, runtime-root fix. Output encoding reviewed: consistent. |
 | Browser scripts and portal shell | `static/js/*.js`, `views/portal.html` | changed / **verified** | `tests/frontend/portal_regression.test.js`, 29/29 in four time zones. |
 | Deployment and web tier | `.htaccess`, `server.json`, `deploy/*` | changed / static | Shell syntax and JSON parsed. |
 | CI | `.github/workflows/*.yml` | changed / static | YAML parsed. Frontend job added. |
-| Parity suite | `tests/http_parity.py`, `tests/billing_parity.cfm` | changed / compile-checked | Disposable guard, dimension restore, new server assertions. |
+| Parity suite | `tests/http_parity.py`, `tests/billing_parity.cfm` | changed / CI | Disposable guard, dimension restore, new server assertions; passes end to end. |
 | Generated CSS, images, upstream Jinja templates | `static/css/tailwind.css`, `static/*.png`, `migration/` | not reviewed | Build outputs and reference copies. |
 | Python build helpers | `migration/*.py` | reviewed | Build-time only. |
 
-## Runtime verification required before merge (in this order)
+## Runtime verification
+
+Steps 1–5 below were completed by GitHub Actions run `35183539818` (Lucee 7.1.0.204) on commit `aeb1020`. Steps 6–10 still require a human on a real deployment.
+
 
 1. `box server start` with `USSI_NEXUS_BOOTSTRAP_PASSWORD` set; confirm `/index.cfm/healthz` returns `ok:true` (exercises `AuthService.init` and the PBKDF2 path when the database is new).
 2. Sign in as the bootstrap user; sign out via the Log out button; sign in again (second login rehashes a v2 hash to v3 — check the `users.password_hash` value now starts with `v3$`).
