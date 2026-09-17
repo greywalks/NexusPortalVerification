@@ -367,8 +367,12 @@ print('PASS: audit log pages/export and integration API keys, reads, ingest and 
 # Home hub: seeded content, explicit editor permission, links with targets, sanitized bulletins.
 home=check(s.get(BASE+'/home')).text
 assert 'QUICK LINKS' in home and 'Remote NGERP access' in home and 'home-link-highlight' in home and 'USSI Spam Filter' in home,home[-1500:]
-# The restricted user signed out at the end of the permissions section; sign back in with the changed password.
-limited=requests.Session();check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass-updated'},allow_redirects=False),302)
+# The earlier restricted user was deleted at the end of its section; create a fresh one with no permissions.
+hub_user='hub_'+uuid.uuid4().hex[:8]
+postform('/admin/permissions/users/new',{'username':hub_user,'password':'parity-pass-2026','initials':'HB'})
+hub_card=re.search(r'<h2>'+re.escape(hub_user)+r'.*?action="/admin/permissions/users/(\d+)/set"',check(s.get(BASE+'/admin/permissions')).text,re.S);assert hub_card,'hub user card missing';hub_uid=hub_card.group(1)
+limited=requests.Session();check(limited.post(BASE+'/login',data={'username':hub_user,'password':'parity-pass-2026'},allow_redirects=False),302)
+check(limited.get(BASE+'/home'))
 check(limited.get(BASE+'/home/edit'),403)
 check(limited.post(BASE+'/home/sections/new',data={'title':'x','kind':'links','col':'1'}),403)
 r=s.post(BASE+'/home/sections/new',data={'title':'Parity Links','kind':'links','col':'2'},allow_redirects=False);check(r,302);sec_id=re.search(r'home-section-(\d+)',r.headers['Location']).group(1)
@@ -387,7 +391,7 @@ home=check(s.get(BASE+'/home')).text
 bul=re.search(r'id="home-section-'+bul_id+r'".*?<div class="home-bulletin">(.*?)</div></section>',home,re.S).group(1)
 assert bul=='<p>Hello <strong>team</strong></p>&lt;script&gt;alert(1)&lt;/script&gt;bad <a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>&lt;img src=x onerror=alert(3)&gt;<mark>note</mark>',bul
 # grant the editor permission to the limited user, then they can edit but still not administer
-postform(f'/admin/permissions/users/{uid}/set',{'training_role':'viewer','home_editor':'on'})
+postform(f'/admin/permissions/users/{hub_uid}/set',{'home_editor':'on'})
 check(limited.get(BASE+'/home/edit'))
 check(limited.post(BASE+'/home/banner',data={'banner':'PARITY LINKS'}),200)
 assert 'PARITY LINKS' in check(limited.get(BASE+'/home')).text
@@ -397,4 +401,5 @@ postform(f'/home/sections/{sec_id}/delete',{});postform(f'/home/sections/{bul_id
 assert 'Parity Links' not in check(s.get(BASE+'/home')).text
 assert 'home.section_deleted' in check(s.get(BASE+'/admin/audit',params={'action':'home.'})).text
 check(limited.post(BASE+'/logout',allow_redirects=False),302)
+postform(f'/admin/permissions/users/{hub_uid}/delete',{})
 print('PASS: home hub content, editor permission, link targets and bulletin sanitizing')
