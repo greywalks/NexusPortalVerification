@@ -88,17 +88,17 @@ component output=false {
         for (var c = 1; c <= 3; c++) { var q = queryExecute("SELECT id FROM home_sections WHERE col=:c ORDER BY position, id", {c:c}, {datasource:variables.datasource}); var i = 0; for (var row in q) { i++; queryExecute("UPDATE home_sections SET position=:p WHERE id=:id", {p:i, id:row.id}, {datasource:variables.datasource}); } }
     }
 
-    numeric function addLink(required numeric sectionId, required string label, string url="", string target="same", string style="normal", string description="") {
+    numeric function addLink(required numeric sectionId, required string label, string href="", string target="same", string style="normal", string description="") {
         var s = section(arguments.sectionId); if (!structCount(s)) fail("Section not found."); if (s.kind != "links") fail("Links can only be added to a links section.");
-        var clean = cleanLink(arguments.label, arguments.url, arguments.target, arguments.style, arguments.description);
+        var clean = cleanLink(arguments.label, arguments.href, arguments.target, arguments.style, arguments.description);
         var pos = queryExecute("SELECT COALESCE(MAX(position),0)+1 p FROM home_links WHERE section_id=:s", {s:arguments.sectionId}, {datasource:variables.datasource}).p[1];
         var r = {};
         queryExecute("INSERT INTO home_links(section_id,position,label,url,target,style,description) VALUES(:s,:p,:l,:u,:t,:st,:d)", {s:arguments.sectionId, p:pos, l:clean.label, u:{value:clean.url, null:!len(clean.url)}, t:clean.target, st:clean.style, d:{value:clean.description, null:!len(clean.description)}}, {datasource:variables.datasource, result:"r"});
         queryExecute("UPDATE home_sections SET updated_at=CURRENT_TIMESTAMP WHERE id=:id", {id:arguments.sectionId}, {datasource:variables.datasource});
         return structKeyExists(r, "generatedKey") ? val(r.generatedKey) : val(queryExecute("SELECT MAX(id) id FROM home_links", {}, {datasource:variables.datasource}).id[1]);
     }
-    void function updateLink(required numeric id, required string label, string url="", string target="same", string style="normal", string description="") {
-        var clean = cleanLink(arguments.label, arguments.url, arguments.target, arguments.style, arguments.description);
+    void function updateLink(required numeric id, required string label, string href="", string target="same", string style="normal", string description="") {
+        var clean = cleanLink(arguments.label, arguments.href, arguments.target, arguments.style, arguments.description);
         queryExecute("UPDATE home_links SET label=:l, url=:u, target=:t, style=:st, description=:d WHERE id=:id", {l:clean.label, u:{value:clean.url, null:!len(clean.url)}, t:clean.target, st:clean.style, d:{value:clean.description, null:!len(clean.description)}, id:arguments.id}, {datasource:variables.datasource});
     }
     boolean function deleteLink(required numeric id) {
@@ -114,55 +114,78 @@ component output=false {
         for (var i = 1; i <= arrayLen(ids); i++) queryExecute("UPDATE home_links SET position=:p WHERE id=:id", {p:i, id:ids[i]}, {datasource:variables.datasource});
     }
 
-    private struct function cleanLink(required string label, required string url, required string target, required string style, required string description) {
+    private struct function cleanLink(required string label, required string href, required string target, required string style, required string description) {
         var l = trim(arguments.label); if (!len(l) || len(l) > 200) fail("Link text is required (200 characters max).");
-        var u = safeUrl(arguments.url); if (len(trim(arguments.url)) && !len(u)) fail("Link address must start with http://, https://, mailto:, tel: or / (got '" & left(trim(arguments.url), 60) & "').");
+        var u = safeUrl(arguments.href); if (len(trim(arguments.href)) && !len(u)) fail("Link address must start with http://, https://, mailto:, tel: or / (got '" & left(trim(arguments.href), 60) & "').");
         var t = lCase(trim(arguments.target)); if (!arrayFindNoCase(variables.targets, t)) t = "same";
         var st = lCase(trim(arguments.style)); if (!arrayFindNoCase(variables.styles, st)) st = "normal";
         if (len(trim(arguments.description)) > 500) fail("Link description is limited to 500 characters.");
         return {label:l, url:u, target:t, style:st, description:trim(arguments.description)};
     }
     // Accepts absolute http(s), mailto:, tel: and site-relative paths; rejects javascript:, data: and protocol-relative.
-    string function safeUrl(required string url) {
-        var u = trim(arguments.url); if (!len(u) || len(u) > 2000) return "";
-        if (reFindNoCase("^(https?://[^\s]+|mailto:[^\s]+|tel:[+0-9().\s-]+)$", u)) return u;
-        if (reFind("^/[^/\\][^\s]*$", u) || u == "/") return u;
+    string function safeUrl(required string href) {
+        var u = trim(arguments.href); if (!len(u) || len(u) > 2000) return "";
+        if (find(" ", u) || find(chr(9), u) || find(chr(10), u) || find(chr(13), u)) return "";
+        var lower = lCase(u);
+        if (left(lower, 7) == "http://" && len(u) > 7) return u;
+        if (left(lower, 8) == "https://" && len(u) > 8) return u;
+        if (left(lower, 7) == "mailto:" && len(u) > 7) return u;
+        if (left(lower, 4) == "tel:" && len(u) > 4) return u;
+        if (u == "/") return u;
+        if (left(u, 1) == "/" && left(u, 2) != "//" && left(u, 2) != "/\") return u;
         return "";
     }
 
     // ---- sanitizer -------------------------------------------------------------
-    // Everything is HTML-encoded first; only the tags below are then restored,
-    // and <a> keeps just a validated href plus an optional new-tab target.
-    // Minimal escaper (& < > " ') — unlike encodeForHtml it leaves "/" alone so
-    // closing tags and URLs stay recognisable to the patterns below.
+    // The text is HTML-escaped, then scanned tag by tag (no regex, so behaviour
+    // does not depend on the engine's regex flavour). Only the tags below are
+    // restored; <a> keeps a validated href plus an optional new-tab target;
+    // everything else stays as visible, escaped text.
     string function htmlEscape(required string text) {
         return replace(replace(replace(replace(replace(arguments.text, "&", "&amp;", "all"), "<", "&lt;", "all"), ">", "&gt;", "all"), '"', "&quot;", "all"), "'", "&##39;", "all");
     }
     string function sanitizeHtml(required string html) {
+        var allowed = {p:1, br:1, strong:1, b:1, em:1, i:1, u:1, ul:1, ol:1, li:1, h3:1, h4:1, blockquote:1, mark:1, s:1};
+        var aliases = {b:"strong", i:"em", h4:"h3"};
         var enc = htmlEscape(arguments.html);
-        // Simple tags without attributes (any attributes present are discarded).
-        for (var tag in ["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h3", "h4", "blockquote", "mark", "s"]) {
-            enc = reReplaceNoCase(enc, "&lt;" & tag & "(\s.*?)?\s*/?&gt;", "<" & tag & ">", "all");
-            enc = reReplaceNoCase(enc, "&lt;/" & tag & "\s*&gt;", "</" & tag & ">", "all");
+        var parts = listToArray(enc, "&lt;", true, true);
+        if (!arrayLen(parts)) return "";
+        var out = parts[1];
+        var anchors = []; // true = emitted, false = dropped (its closer is dropped too)
+        for (var i = 2; i <= arrayLen(parts); i++) {
+            var chunk = parts[i];
+            var close = find("&gt;", chunk);
+            if (!close) { out &= "&lt;" & chunk; continue; }
+            var body = trim(left(chunk, close - 1)); var rest = mid(chunk, close + 4, len(chunk));
+            var closing = left(body, 1) == "/"; if (closing) body = trim(mid(body, 2, len(body)));
+            var nameEnd = reFind("[^A-Za-z0-9]", body); var name = lCase(nameEnd ? left(body, nameEnd - 1) : body);
+            var attrs = nameEnd ? mid(body, nameEnd, len(body)) : "";
+            if (name == "a") {
+                if (closing) { if (arrayLen(anchors)) { var wasEmitted = anchors[arrayLen(anchors)]; arrayDeleteAt(anchors, arrayLen(anchors)); if (wasEmitted) out &= "</a>"; } }
+                else {
+                    var href = safeUrl(replace(attrValue(attrs, "href"), "&amp;", "&", "all"));
+                    var newTab = lCase(attrValue(attrs, "target")) == "_blank";
+                    if (len(href)) { out &= '<a href="' & htmlEscape(href) & '"' & (newTab ? ' target="_blank" rel="noopener noreferrer"' : '') & '>'; arrayAppend(anchors, true); }
+                    else arrayAppend(anchors, false);
+                }
+                out &= rest; continue;
+            }
+            if (structKeyExists(allowed, name)) {
+                var tag = aliases[name] ?: name;
+                if (name == "br") out &= "<br>";
+                else out &= (closing ? "</" : "<") & tag & ">";
+                out &= rest; continue;
+            }
+            out &= "&lt;" & chunk; // unknown tag stays visible as text
         }
-        // Anchors: href="..." with optional target.
-        var out = ""; var rest = enc;
-        while (true) {
-            var m = reFindNoCase("&lt;a\s+(.*?)&gt;", rest, 1, true);
-            if (!arrayLen(m.pos) || m.pos[1] == 0) { out &= rest; break; }
-            out &= left(rest, m.pos[1] - 1);
-            var attrs = mid(rest, m.pos[2], m.len[2]);
-            var href = ""; var target = "";
-            var hm = reFindNoCase("href=&quot;(.*?)&quot;", attrs, 1, true);
-            if (arrayLen(hm.pos) > 1 && hm.pos[2]) href = safeUrl(replace(mid(attrs, hm.pos[2], hm.len[2]), "&amp;", "&", "all"));
-            if (reFindNoCase("target=&quot;_blank&quot;", attrs)) target = ' target="_blank" rel="noopener noreferrer"';
-            rest = mid(rest, m.pos[1] + m.len[1], len(rest));
-            if (len(href)) out &= '<a href="' & htmlEscape(href) & '"' & target & '>';
-            else rest = reReplaceNoCase(rest, "&lt;/a\s*&gt;", "", "one"); // drop the closer of the anchor we removed
-        }
-        out = reReplaceNoCase(out, "&lt;/a\s*&gt;", "</a>", "all");
-        // Balance stray closers we could not pair: cheap safety, browsers ignore extras.
         return trim(out);
+    }
+    // Reads name=&quot;value&quot; from an escaped attribute string.
+    private string function attrValue(required string attrs, required string name) {
+        var key = lCase(arguments.name) & "=&quot;";
+        var at = findNoCase(key, arguments.attrs); if (!at) return "";
+        var from = at + len(key); var to = find("&quot;", arguments.attrs, from); if (!to) return "";
+        return mid(arguments.attrs, from, to - from);
     }
 
     private void function fail(required string message) { throw(type="Logicore.Validation", message=arguments.message); }
@@ -188,7 +211,7 @@ component output=false {
         for (var d in defs) {
             var id = createSection(d.kind, d.title, d.subtitle ?: "", d.col, "seed");
             updateSection(id, d.title, d.subtitle ?: "", d.note ?: "", d.noteStyle ?: "normal", d.body ?: "", "seed");
-            for (var l in d.links ?: []) { if (isSimpleValue(l)) addLink(id, l); else addLink(id, l.l, l.u ?: "", l.t ?: "same", l.style ?: "normal"); }
+            for (var l in d.links ?: []) { if (isSimpleValue(l)) addLink(id, l); else addLink(id, l.l, l.href ?: "", l.t ?: "same", l.style ?: "normal"); }
         }
         setBanner("QUICK LINKS");
     }
