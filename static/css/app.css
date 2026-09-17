@@ -875,20 +875,42 @@ body::before { display: none; }
 .home-edit-bar { margin-top: 28px; }
 /* editor */
 .home-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.home-edit-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-@media (max-width: 1200px) { .home-edit-columns { grid-template-columns: 1fr; } }
-.home-edit-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.home-inline-label { display: flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--text-muted); }
+.home-edit-toolbar { display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: center; padding: 12px 14px; border: 1px solid var(--border, #475569); border-radius: 10px; margin-bottom: 14px; }
+.home-edit-toolbar input, .home-edit-toolbar select { font-size: .9rem; }
+.home-edit-group { margin: 22px 0 8px; }
+.home-edit-group-title { font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.home-edit-group-title .muted { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 8px; }
+.home-edit-section { padding: 0 !important; margin-bottom: 8px; overflow: hidden; }
+.home-edit-summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; user-select: none; }
+.home-edit-summary::-webkit-details-marker { display: none; }
+.home-edit-summary::before { content: "\25B8"; color: var(--text-muted); width: 1em; }
+.home-edit-section[open] > .home-edit-summary::before { content: "\25BE"; }
+.home-edit-summary-title { font-weight: 600; }
+.home-edit-kind { font-size: .8rem; color: var(--text-muted); }
 .home-edit-move { margin-left: auto; display: flex; gap: 4px; }
-.home-edit-move button, .home-edit-actions button { padding: 2px 8px; font-size: .85rem; }
-.home-edit-form { display: grid; gap: 8px; margin-bottom: 10px; }
+.home-edit-body { padding: 4px 14px 14px; border-top: 1px solid var(--border, #475569); }
+button.icon { padding: 2px 8px; font-size: .85rem; line-height: 1.4; min-width: 30px; }
+.home-edit-form { margin: 10px 0; }
+.home-edit-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 14px; }
 .home-edit-form label { display: grid; gap: 4px; font-size: .8rem; color: var(--text-muted); }
 .home-edit-form input, .home-edit-form select { width: 100%; }
-.home-edit-links input, .home-edit-links select { width: 100%; min-width: 90px; font-size: .85rem; }
-.home-edit-links td { vertical-align: top; padding: 4px; }
+.home-edit-actions-row { margin-top: 10px; }
+.home-edit-links { width: 100%; margin-top: 6px; }
+.home-edit-links th { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); text-align: left; padding: 4px; }
+.home-edit-links td { vertical-align: middle; padding: 3px 4px; }
+.home-edit-links input, .home-edit-links select { width: 100%; font-size: .85rem; padding: 4px 6px; }
+.home-edit-links td:nth-child(1) { width: 22%; }
+.home-edit-links td:nth-child(2) { width: 30%; }
+.home-edit-links td:nth-child(3), .home-edit-links td:nth-child(4) { width: 11%; }
+.home-edit-links td:nth-child(5) { width: 16%; }
 .home-edit-actions { white-space: nowrap; }
+.home-edit-actions button { margin-right: 2px; }
+.home-edit-newrow td { padding-top: 8px; border-top: 1px dashed var(--border, #475569); }
 .home-toolbar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
 .home-toolbar button { padding: 2px 8px; font-size: .85rem; }
 .home-editor { min-height: 160px; border: 1px solid var(--border, #475569); border-radius: 6px; padding: 10px; background: var(--surface, rgba(255,255,255,.03)); line-height: 1.5; }
 .home-editor:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .home-editor mark { background: #fff59d; color: #1a1a1a; }
 .home-editor a { color: var(--accent); }
+@media (max-width: 900px) { .home-edit-links, .home-edit-links thead, .home-edit-links tbody, .home-edit-links tr, .home-edit-links td { display: block; width: auto !important; } .home-edit-links thead { display: none; } .home-edit-links tr { padding: 8px 0; border-bottom: 1px solid var(--border, #475569); } }

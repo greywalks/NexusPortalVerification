@@ -45,6 +45,14 @@
     try { range.surroundContents(a); } catch (e) { a.appendChild(range.extractContents()); range.insertNode(a); }
   }
 
+  // Open the section named in the URL hash (after a save/redirect) and scroll to it;
+  // otherwise open the first section so the page is not a wall of closed rows.
+  (function () {
+    var target = location.hash && document.querySelector(location.hash + '.home-edit-section');
+    if (target) { target.open = true; target.scrollIntoView({ block: 'start' }); }
+    else { var first = document.querySelector('.home-edit-section'); if (first) first.open = true; }
+  })();
+
   document.querySelectorAll('.home-toolbar').forEach(function (bar) {
     var editor = document.getElementById(bar.dataset.for);
     if (!editor) return;
