@@ -1,6 +1,6 @@
 <cfscript>
 // Intranet home hub: /home (everyone signed in) and /home/edit (home editors).
-function homeAttr(required string v){return application.home.htmlEscape(arguments.v);}
+function homeAttr(required string v){return application.home.escapeHubText(arguments.v);}
 function homeCanEdit(required struct u){return val(arguments.u.is_superadmin?:0)==1||application.auth.hasAccess(arguments.u,"home","editor");}
 function homeRequireEditor(){var u=requireLogin();if(!homeCanEdit(u))htmlOut(workspaceShellStart(u,"home","Home")&'<div class="card" role="alert"><h2>Editing not permitted</h2><p>Your account does not have the Home Page Editor permission. Ask an administrator to grant it under User Management.</p><p><a class="btn" href="/home">&larr; Back to Home</a></p></div>'&workspaceShellEnd(),403);return u;}
 function homeLinkHtml(required struct l){var label=encodeForHtml(l.label);var cls="home-link home-link-"&encodeForHtmlAttribute(l.style?:"normal");var url=len(l.url?:"")?l.url:"";var out="";

@@ -60,7 +60,7 @@ component output=false {
         var t = trim(arguments.title); if (!len(t) || len(t) > 200) fail("Section title is required (200 characters max).");
         var ns = lCase(trim(arguments.noteStyle)); if (!arrayFindNoCase(variables.styles, ns)) ns = "normal";
         if (len(trim(arguments.noteText)) > 500) fail("The note is limited to 500 characters.");
-        var body = sanitizeHtml(arguments.bodyHtml);
+        var body = this.sanitizeBulletinHtml(arguments.bodyHtml);
         if (len(body) > 60000) fail("The bulletin is too long (60,000 characters max).");
         queryExecute("UPDATE home_sections SET title=:t, subtitle=:s, note_text=:n, note_style=:ns, body_html=:b, updated_at=CURRENT_TIMESTAMP, updated_by=:u WHERE id=:id",
             {t:t, s:{value:left(trim(arguments.subtitle),500), null:!len(trim(arguments.subtitle))}, n:{value:trim(arguments.noteText), null:!len(trim(arguments.noteText))}, ns:ns, b:{value:body, cfsqltype:"cf_sql_longvarchar", null:!len(body)}, u:left(arguments.actor,120), id:arguments.id}, {datasource:variables.datasource});
@@ -116,14 +116,14 @@ component output=false {
 
     private struct function cleanLink(required string label, required string href, required string target, required string style, required string description) {
         var l = trim(arguments.label); if (!len(l) || len(l) > 200) fail("Link text is required (200 characters max).");
-        var u = safeUrl(arguments.href); if (len(trim(arguments.href)) && !len(u)) fail("Link address must start with http://, https://, mailto:, tel: or / (got '" & left(trim(arguments.href), 60) & "').");
+        var u = this.validLinkAddress(arguments.href); if (len(trim(arguments.href)) && !len(u)) fail("Link address must start with http://, https://, mailto:, tel: or / (got '" & left(trim(arguments.href), 60) & "').");
         var t = lCase(trim(arguments.target)); if (!arrayFindNoCase(variables.targets, t)) t = "same";
         var st = lCase(trim(arguments.style)); if (!arrayFindNoCase(variables.styles, st)) st = "normal";
         if (len(trim(arguments.description)) > 500) fail("Link description is limited to 500 characters.");
         return {label:l, url:u, target:t, style:st, description:trim(arguments.description)};
     }
     // Accepts absolute http(s), mailto:, tel: and site-relative paths; rejects javascript:, data: and protocol-relative.
-    string function safeUrl(required string href) {
+    string function validLinkAddress(required string href) {
         var u = trim(arguments.href); if (!len(u) || len(u) > 2000) return "";
         if (find(" ", u) || find(chr(9), u) || find(chr(10), u) || find(chr(13), u)) return "";
         var lower = lCase(u);
@@ -137,17 +137,20 @@ component output=false {
     }
 
     // ---- sanitizer -------------------------------------------------------------
+    // NOTE: method names here deliberately avoid Lucee built-ins. An unscoped call
+    // to a method that shares a name with a BIF (e.g. sanitizeHTML) resolves to the
+    // BIF, which silently replaced this sanitizer until the names were changed.
     // The text is HTML-escaped, then scanned tag by tag (no regex, so behaviour
     // does not depend on the engine's regex flavour). Only the tags below are
     // restored; <a> keeps a validated href plus an optional new-tab target;
     // everything else stays as visible, escaped text.
-    string function htmlEscape(required string text) {
+    string function escapeHubText(required string text) {
         return replace(replace(replace(replace(replace(arguments.text, "&", "&amp;", "all"), "<", "&lt;", "all"), ">", "&gt;", "all"), '"', "&quot;", "all"), "'", "&##39;", "all");
     }
-    string function sanitizeHtml(required string html) {
+    string function sanitizeBulletinHtml(required string html) {
         var allowed = {p:1, br:1, strong:1, b:1, em:1, i:1, u:1, ul:1, ol:1, li:1, h3:1, h4:1, blockquote:1, mark:1, s:1};
         var aliases = {b:"strong", i:"em", h4:"h3"};
-        var enc = htmlEscape(arguments.html);
+        var enc = this.escapeHubText(arguments.html);
         var parts = listToArray(enc, "&lt;", true, true);
         if (!arrayLen(parts)) return "";
         var out = parts[1];
@@ -163,9 +166,9 @@ component output=false {
             if (name == "a") {
                 if (closing) { if (arrayLen(anchors)) { var wasEmitted = anchors[arrayLen(anchors)]; arrayDeleteAt(anchors, arrayLen(anchors)); if (wasEmitted) out &= "</a>"; } }
                 else {
-                    var href = safeUrl(replace(attrValue(attrs, "href"), "&amp;", "&", "all"));
-                    var newTab = lCase(attrValue(attrs, "target")) == "_blank";
-                    if (len(href)) { out &= '<a href="' & htmlEscape(href) & '"' & (newTab ? ' target="_blank" rel="noopener noreferrer"' : '') & '>'; arrayAppend(anchors, true); }
+                    var href = this.validLinkAddress(replace(hubAttrValue(attrs, "href"), "&amp;", "&", "all"));
+                    var newTab = lCase(hubAttrValue(attrs, "target")) == "_blank";
+                    if (len(href)) { out &= '<a href="' & escapeHubText(href) & '"' & (newTab ? ' target="_blank" rel="noopener noreferrer"' : '') & '>'; arrayAppend(anchors, true); }
                     else arrayAppend(anchors, false);
                 }
                 out &= rest; continue;
@@ -181,7 +184,7 @@ component output=false {
         return trim(out);
     }
     // Reads name=&quot;value&quot; from an escaped attribute string.
-    private string function attrValue(required string attrs, required string name) {
+    private string function hubAttrValue(required string attrs, required string name) {
         var key = lCase(arguments.name) & "=&quot;";
         var at = findNoCase(key, arguments.attrs); if (!at) return "";
         var from = at + len(key); var to = find("&quot;", arguments.attrs, from); if (!to) return "";
