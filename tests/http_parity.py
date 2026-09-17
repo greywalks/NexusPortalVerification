@@ -291,7 +291,7 @@ r=s.post(BASE+'/set_amc_prices',json={'prices':before_amc},headers={'Origin':'ht
 r=s.post(BASE+'/nonconforming/api/items',json={'model':'x','serial':'y','carrier':'z'},headers={'Origin':'https://evil.example'});check(r,403)
 r=s.post(BASE+'/set_amc_prices',json={'prices':before_amc},headers={'Origin':ROOT});check(r)
 # Logout is a state change and is not triggered by a plain link.
-r=s.get(BASE+'/logout',allow_redirects=False);assert r.status_code in (302,303) and r.headers.get('Location','').endswith('/index.cfm') and check(s.get(BASE+'/healthz')).json()['ok']
+r=s.get(BASE+'/logout',allow_redirects=False);assert r.status_code in (302,303),r.status_code;assert r.headers.get('Location','').rstrip('/').endswith('/index.cfm'),r.headers.get('Location');assert check(s.get(BASE+'/healthz')).json()['ok']
 assert 'USSI Nexus' in check(s.get(BASE+'/')).text
 # Administrative user creation reports validation problems instead of silently failing.
 r=s.post(BASE+'/admin/permissions/users/new',data={'username':'bad user!','password':'parity-pass-2026'},allow_redirects=False);check(r,302);assert 'error=' in r.headers.get('Location','')
