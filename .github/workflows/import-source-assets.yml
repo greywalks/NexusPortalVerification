@@ -1,10 +1,14 @@
 name: Import unchanged source assets
 
+# Manual only: this job commits and pushes files copied from another
+# repository, so it must not run on every push and must not track a moving
+# branch. Pin the source commit when dispatching.
 on:
-  push:
-    paths:
-      - '.github/workflows/import-source-assets.yml'
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit SHA of greywalks/Logicore-Portal to import from
+        required: true
 
 permissions:
   contents: write
@@ -22,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: greywalks/Logicore-Portal
-          ref: main
+          ref: ${{ inputs.source_ref }}
           path: source
 
       - name: Copy unchanged frontend, templates and reference data

@@ -10,7 +10,7 @@ component extends="services.NonConformingService" output=false {
     }
 
     string function buildExport(required array rows) {
-        var filename="SMS_NonConforming_"&dateFormat(now(),"yyyymmdd")&"_"&timeFormat(now(),"HHmmss")&".xlsx";
+        var filename="SMS_NonConforming_"&dateFormat(now(),"yyyymmdd")&"_"&timeFormat(now(),"HHmmss")&"_"&left(replace(createUUID(),"-","","all"),6)&".xlsx";
         var data=[];
         for(var item in arguments.rows){
             arrayAppend(data,{

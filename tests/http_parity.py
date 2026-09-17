@@ -1,5 +1,5 @@
 """Exercise the browser's real contracts; Python is test-only, never application runtime."""
-import io, json, os, re, warnings
+import atexit, io, json, os, re, warnings
 from pathlib import Path
 import requests
 from openpyxl import Workbook, load_workbook
@@ -7,6 +7,14 @@ warnings.filterwarnings('ignore',message='Workbook contains no default style')
 
 ROOT=os.getenv('USSI_NEXUS_TEST_URL',os.getenv('LOGICORE_TEST_URL','http://127.0.0.1:5000')).rstrip('/')
 BASE=ROOT+'/index.cfm'
+# This suite changes server state: it replaces the AMC and Philips dimension
+# tables, generates invoices, files NonConforming items, imports inventory
+# events that are never removed, and creates/deletes users. Never point it at an
+# environment whose data matters.
+if os.getenv('USSI_NEXUS_TEST_DISPOSABLE')!='1':
+ raise SystemExit('Refusing to run: '+ROOT+' must be a disposable test instance. '
+  'This suite replaces reference data and writes records that are not cleaned up. '
+  'Set USSI_NEXUS_TEST_DISPOSABLE=1 only for a throwaway database (for example the CI runner).')
 TEST_USERNAME=os.environ['USSI_NEXUS_BOOTSTRAP_USERNAME']
 TEST_PASSWORD=os.environ['USSI_NEXUS_BOOTSTRAP_PASSWORD']
 OUT=Path(__file__).parent/'generated'; OUT.mkdir(exist_ok=True)
@@ -92,6 +100,26 @@ assert anonymous.get(BASE+'/training-tracker/admin/import/template',allow_redire
 
 quality_page=check(s.get(BASE+'/inventory-management/quality')).text
 assert '<th>Severity</th>' not in quality_page or '<th>Expected model</th>' in quality_page
+
+# Snapshot the dimension tables this suite replaces and put them back on exit,
+# including after a failed assertion, so a mistaken run does less damage.
+# --- dimension snapshot begin ---
+_dimension_snapshots={}
+for client in ['amc','philips']:
+ r=s.get(BASE+'/download_'+client+'_dimensions')
+ if r.status_code==200 and r.content[:2]==b'PK':
+  _dimension_snapshots[client]=(r.content,api('/get_'+client+'_dimensions').get('count'))
+def _restore_dimensions():
+ for client,(data,count) in _dimension_snapshots.items():
+  try:
+   r=s.post(BASE+'/upload_'+client+'_dimensions',files={'file':(client+'_dimensions_restore.xlsx',data)})
+   restored=s.get(BASE+'/get_'+client+'_dimensions').json().get('count')
+   state='restored' if r.ok and restored==count else f'RESTORE MISMATCH (HTTP {r.status_code}; {restored} models, expected {count})'
+  except Exception as e:
+   state=f'RESTORE FAILED: {e}'
+  print(f'{client} dimensions {state}')
+atexit.register(_restore_dimensions)
+# --- dimension snapshot end ---
 
 # Config round-trip tests the actual upload/download argument order and numeric data.
 dims=book({'Dimensions':(['Model','Sq Footage'],[['TEST-75',20],['TEST-86',35]])})
@@ -214,12 +242,12 @@ d,w=done('/stream');assert d['filename']=='LEGACY_PARITY.xlsx';assert d['subtota
 
 # Limited users only see and reach explicitly granted sections.
 username='limited_'+uuid.uuid4().hex[:8]
-postform('/admin/permissions/users/new',{'username':username,'password':'parity-pass','initials':'LP'})
+postform('/admin/permissions/users/new',{'username':username,'password':'parity-pass-2026','initials':'LP'})
 admin_page=check(s.get(BASE+'/admin/permissions')).text
 card=re.search(r'<div class="card"><h2>'+username+r'.*?action="/admin/permissions/users/(\d+)/set"',admin_page,re.S);assert card,username
 assert 'name="config_access"' in admin_page and '> Config</label>' in admin_page
 uid=card.group(1);postform(f'/admin/permissions/users/{uid}/set',{'invoice_generator':'on','sms_nonconforming':'on','training_role':'viewer'})
-limited=requests.Session();check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass'},allow_redirects=False),302)
+limited=requests.Session();check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass-2026'},allow_redirects=False),302)
 portal=check(limited.get(BASE+'/')).text
 assert '"trainingRole":"viewer"' in portal and '"config"' not in re.search(r'"invoiceChildren":\[(.*?)\]',portal).group(1)
 assert 'id="nav-config"' not in portal and 'id="page-config"' not in portal
@@ -237,7 +265,7 @@ assert 'value="LP" readonly aria-readonly="true"' in limited_account and 'value=
 theme_result=check(limited.post(BASE+'/account/theme',data={'theme':'dark'})).json();assert theme_result['ok'] and theme_result['theme']=='dark'
 bad_password=check(limited.post(BASE+'/account/password',data={'current_password':'wrong','new_password':'parity-pass-updated','confirm_password':'parity-pass-updated'}),400)
 assert 'Current password is incorrect.' in bad_password.text
-check(limited.post(BASE+'/account/password',data={'current_password':'parity-pass','new_password':'parity-pass-updated','confirm_password':'parity-pass-updated'}))
+check(limited.post(BASE+'/account/password',data={'current_password':'parity-pass-2026','new_password':'parity-pass-updated','confirm_password':'parity-pass-updated'}))
 check(limited.post(BASE+'/logout',allow_redirects=False),302)
 check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass-updated'},allow_redirects=False),302)
 assert 'class="sidebar-sub"' in viewer_training
@@ -246,3 +274,29 @@ check(limited.post(BASE+'/analyze_amc'),400);check(limited.get(BASE+'/get_philip
 check(limited.get(BASE+'/training-tracker/'));check(limited.get(BASE+'/training-tracker/admin'),403)
 postform(f'/admin/permissions/users/{uid}/delete',{})
 print('PASS: legacy Workshop workflow and restricted-user section/role permissions')
+
+# Server-side hardening added by the release audit.
+# Reference data can only change through POST with a well-formed body.
+check(s.get(BASE+'/set_storage_prices'),405);check(s.get(BASE+'/set_philips_repair_cost'),405);check(s.get(BASE+'/set_amc_prices'),405)
+before_amc=api('/get_amc_prices')['prices'];before_tiers=api('/get_philips_repair_cost')['tiers']
+r=s.post(BASE+'/set_amc_prices',json={'prices':{'unit_receipt':-1}});check(r,400);assert r.json()['ok'] is False
+r=s.post(BASE+'/set_amc_prices',json={'prices':{'made_up_key':5}});check(r,400)
+r=s.post(BASE+'/set_philips_repair_cost',json={'tiers':[]});check(r,400)
+r=s.post(BASE+'/set_philips_repair_cost',json={'tiers':[{'size':'50','rb_price':'abc','harvest_price':40}]});check(r,400)
+r=s.post(BASE+'/set_storage_prices',data='{not json',headers={'Content-Type':'application/json'});check(r,400)
+assert api('/get_amc_prices')['prices']==before_amc and api('/get_philips_repair_cost')['tiers']==before_tiers,'rejected writes changed reference data'
+r=s.post(BASE+'/set_amc_prices',json={'prices':before_amc});check(r);assert api('/get_amc_prices')['prices']==before_amc
+# Cross-site requests carry a foreign Origin and must be refused before any work is done.
+r=s.post(BASE+'/set_amc_prices',json={'prices':before_amc},headers={'Origin':'https://evil.example'});check(r,403)
+r=s.post(BASE+'/nonconforming/api/items',json={'model':'x','serial':'y','carrier':'z'},headers={'Origin':'https://evil.example'});check(r,403)
+r=s.post(BASE+'/set_amc_prices',json={'prices':before_amc},headers={'Origin':ROOT});check(r)
+# Logout is a state change and is not triggered by a plain link.
+r=s.get(BASE+'/logout',allow_redirects=False);assert r.status_code in (302,303) and r.headers.get('Location','').endswith('/index.cfm') and check(s.get(BASE+'/healthz')).json()['ok']
+assert 'USSI Nexus' in check(s.get(BASE+'/')).text
+# Administrative user creation reports validation problems instead of silently failing.
+r=s.post(BASE+'/admin/permissions/users/new',data={'username':'bad user!','password':'parity-pass-2026'},allow_redirects=False);check(r,302);assert 'error=' in r.headers.get('Location','')
+r=s.post(BASE+'/admin/permissions/users/new',data={'username':'shortpw_'+uuid.uuid4().hex[:6],'password':'short'},allow_redirects=False);check(r,302);assert 'error=' in r.headers.get('Location','')
+assert 'role="alert"' in check(s.get(BASE+'/admin/permissions?error=Example+problem')).text
+# Password confirmation is case-sensitive.
+bad_confirm=check(s.post(BASE+'/account/password',data={'current_password':TEST_PASSWORD,'new_password':'Parity-Pass-Case-2026','confirm_password':'parity-pass-case-2026'}),400)
+print('PASS: POST-only reference data, payload validation, Origin rejection, logout method, admin validation feedback')

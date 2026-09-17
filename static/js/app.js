@@ -1,7 +1,55 @@
 // ── Defaults ─────────────────────────────────────────────────────────────────
 const today = new Date();
 const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-const fmt = d => d.toISOString().split('T')[0];
+// Format as the user's local calendar day. toISOString() converts to UTC, which
+// shifts defaults to the next day in US evenings and the previous day east of UTC.
+const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// ── Shared safety helpers ────────────────────────────────────────────────────
+// Values shown in review tables come from uploaded workbooks and must never be
+// interpreted as markup.
+function escHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Escape a value for use inside a double-quoted CSS attribute selector.
+function cssAttr(value) {
+  return (window.CSS && typeof window.CSS.escape === 'function')
+    ? window.CSS.escape(String(value))
+    : String(value).replace(/["\\\n\r]/g, c => '\\' + (c === '\n' ? 'a ' : c === '\r' ? 'd ' : c));
+}
+function downloadUrl(filename) {
+  return '/download/' + encodeURIComponent(filename || '');
+}
+// Parse a JSON API response without throwing. An HTML body (for example the
+// sign-in page after a session expires) or an HTTP error becomes {ok:false}.
+async function readJson(res) {
+  let data = null;
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (data && typeof data === 'object') {
+    if (!res.ok) {
+      data = Object.assign({}, data, {ok: false});
+      if (!data.error) data.error = `Request failed (HTTP ${res.status})`;
+    }
+    return data;
+  }
+  const hint = (res.ok || res.status === 401 || res.status === 403)
+    ? ' Your session may have expired; reload the page and sign in again.' : '';
+  return {ok: false, error: `Unexpected server response (HTTP ${res.status}).${hint}`};
+}
+async function requestJson(url, init) {
+  let res;
+  try { res = await fetch(url, init); }
+  catch (err) { return {ok: false, error: 'Network error: ' + (err && err.message ? err.message : err)}; }
+  return readJson(res);
+}
+// Returns a finite, non-negative number, or NaN for blank/invalid/negative input.
+function nonNegativeValue(input) {
+  const raw = String(input.value ?? '').trim();
+  if (raw === '') return NaN;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : NaN;
+}
 ['date-from','date-from2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=fmt(firstOfMonth);});
 ['date-to','date-to2','invoice-date','invoice-date2','completed-date','completed-date2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=fmt(today);});
 ['t-date-from'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=fmt(firstOfMonth);});
@@ -13,11 +61,12 @@ function showPage(page) {
   // All top-level sections (brand pages + config)
   const allPages = ['promethean','amc','tcl','philips','config'];
   allPages.forEach(p=>{
-    document.getElementById('page-'+p).classList.toggle('hidden', p!==page);
-    document.getElementById('nav-'+p).classList.toggle('active', p===page);
-    document.getElementById('nav-'+p).classList.toggle('text-steel', p!==page);
+    // The server omits sections the user may not use, so any of these can be absent.
+    document.getElementById('page-'+p)?.classList.toggle('hidden', p!==page);
+    const nav=document.getElementById('nav-'+p);
+    if(nav){nav.classList.toggle('active', p===page);nav.classList.toggle('text-steel', p!==page);}
   });
-  if(page==='config') loadCfg();
+  if(page==='config' && document.getElementById('cfg-tbody')) loadCfg();
 }
 
 function showConfigPage() {
@@ -49,7 +98,7 @@ function switchTab(tab) {
   document.getElementById('tab-raw').classList.toggle('active', tab==='raw');
   document.getElementById('tab-legacy').classList.toggle('active', tab==='legacy');
   document.getElementById('tab-raw').classList.toggle('text-steel', tab!=='raw');
-  document.getElementById('tab-legacy').classList.toggle('text-steel', tab!=='raw');
+  document.getElementById('tab-legacy').classList.toggle('text-steel', tab!=='legacy');
 }
 
 // ── Drop zones ────────────────────────────────────────────────────────────────
@@ -82,12 +131,11 @@ setupZone('fx-zone-raw','fx-raw','fx-icon-raw','fx-lbl-raw','Monthly billing exp
 // ── Sanitize form ─────────────────────────────────────────────────────────────
 let _issues=[], _outputFilename='', _corrections={};
 
-document.getElementById('sanitize-form').addEventListener('submit', async e=>{
+document.getElementById('sanitize-form')?.addEventListener('submit', async e=>{
   e.preventDefault();
   const btn=document.getElementById('sanitize-btn');
   btn.disabled=true; btn.textContent='Validating…';
-  const res=await fetch('/sanitize',{method:'POST',body:new FormData(e.target)});
-  const data=await res.json();
+  const data=await requestJson('/sanitize',{method:'POST',body:new FormData(e.target)});
   btn.disabled=false; btn.innerHTML='<span>🔍</span> Validate & Review Data';
   if(!data.ok){alert('Error: '+(data.error||'Unknown'));return;}
   _issues=data.issues||[];
@@ -148,17 +196,14 @@ function renderAutoCorrections(autos) {
   autos.forEach(ac => {
     const tr = document.createElement('tr');
     tr.className = 'border-b border-steel/10 hover:bg-accent/5';
-    const changes = [];
-    if(ac.model_changed === 'True') changes.push(`<span class="text-warn/70 line-through">${ac.old_model}</span>`);
-    const nowModel = ac.model_changed === 'True' ? `<span class="text-ok">${ac.new_model}</span>` : `<span class="text-slate-400">${ac.new_model}</span>`;
-    if(ac.size_changed === 'True') changes.push(`<span class="text-warn/70 line-through">size:${ac.old_size}</span> <span class="text-ok">→ ${ac.new_size}"</span>`);
-    const wasCol = ac.model_changed === 'True' ? `<span class="text-warn/70 font-mono text-xs">${ac.old_model}</span>` : `<span class="text-steel font-mono text-xs">${ac.old_model}</span>`;
+    const nowModel = ac.model_changed === 'True' ? `<span class="text-ok">${escHtml(ac.new_model)}</span>` : `<span class="text-slate-400">${escHtml(ac.new_model)}</span>`;
+    const wasCol = ac.model_changed === 'True' ? `<span class="text-warn/70 font-mono text-xs">${escHtml(ac.old_model)}</span>` : `<span class="text-steel font-mono text-xs">${escHtml(ac.old_model)}</span>`;
     tr.innerHTML = `
-      <td class="px-3 py-1.5 font-mono text-steel">${ac.Date}</td>
-      <td class="px-3 py-1.5 font-mono text-slate-400">${(ac.Actual_Serial||ac['Actual Serial']||'').substring(0,22)}</td>
-      <td class="px-3 py-1.5">${wasCol}${ac.size_changed==='True'?` <span class="text-warn/60 text-xs">sz:${ac.old_size}</span>`:''}</td>
-      <td class="px-3 py-1.5">${nowModel}${ac.size_changed==='True'?` <span class="text-ok text-xs">${ac.new_size}"</span>`:''}</td>
-      <td class="px-3 py-1.5 text-steel max-w-xs truncate" title="${ac.Result}">${(ac.Result||'').substring(0,30)}</td>`;
+      <td class="px-3 py-1.5 font-mono text-steel">${escHtml(ac.Date)}</td>
+      <td class="px-3 py-1.5 font-mono text-slate-400">${escHtml(String(ac.Actual_Serial||ac['Actual Serial']||'').substring(0,22))}</td>
+      <td class="px-3 py-1.5">${wasCol}${ac.size_changed==='True'?` <span class="text-warn/60 text-xs">sz:${escHtml(ac.old_size)}</span>`:''}</td>
+      <td class="px-3 py-1.5">${nowModel}${ac.size_changed==='True'?` <span class="text-ok text-xs">${escHtml(ac.new_size)}"</span>`:''}</td>
+      <td class="px-3 py-1.5 text-steel max-w-xs truncate" title="${escHtml(ac.Result)}">${escHtml(String(ac.Result||'').substring(0,30))}</td>`;
     tbody.appendChild(tr);
   });
 }
@@ -178,21 +223,21 @@ function renderIssues(issues) {
     tr.className='border-b border-steel/10 hover:bg-accent/5';
     const opts=iss.suggested_values||[];
     const optsHtml=opts.length
-      ?`<select data-idx="${iss.row_index}" data-field="${iss.field}"
+      ?`<select data-idx="${escHtml(iss.row_index)}" data-field="${escHtml(iss.field)}" aria-label="Corrected value"
            class="issue-select bg-ink-100 border border-steel/40 rounded px-2 py-1.5 text-xs text-slate-200 w-full"
            onchange="markIssue(this)">
            <option value="">— choose —</option>
-           ${opts.map(o=>`<option value="${o}">${o}</option>`).join('')}
+           ${opts.map(o=>`<option value="${escHtml(o)}">${escHtml(o)}</option>`).join('')}
          </select>`
-      :`<input type="text" data-idx="${iss.row_index}" data-field="${iss.field}"
+      :`<input type="text" data-idx="${escHtml(iss.row_index)}" data-field="${escHtml(iss.field)}" aria-label="Corrected value"
            class="bg-ink-100 border border-steel/40 rounded px-2 py-1.5 text-xs text-slate-200 w-full"
            placeholder="Enter correct value…" onchange="markIssueInput(this)" />`;
     tr.innerHTML=`
-      <td class="px-3 py-2.5 font-mono text-slate-400">${iss.Date||''}</td>
-      <td class="px-3 py-2.5 text-slate-300">${iss['Actual Model']||''}</td>
-      <td class="px-3 py-2.5 font-mono text-slate-400 text-xs">${(iss['Actual Serial']||'').substring(0,20)}</td>
-      <td class="px-3 py-2.5 text-warn/80">${iss.description||iss.issue_type}</td>
-      <td class="px-3 py-2.5 font-mono text-steel">${iss.current_value||''}</td>
+      <td class="px-3 py-2.5 font-mono text-slate-400">${escHtml(iss.Date)}</td>
+      <td class="px-3 py-2.5 text-slate-300">${escHtml(iss['Actual Model'])}</td>
+      <td class="px-3 py-2.5 font-mono text-slate-400 text-xs">${escHtml(String(iss['Actual Serial']||'').substring(0,20))}</td>
+      <td class="px-3 py-2.5 text-warn/80">${escHtml(iss.description||iss.issue_type)}</td>
+      <td class="px-3 py-2.5 font-mono text-steel">${escHtml(iss.current_value)}</td>
       <td class="px-3 py-2.5 min-w-[160px]">${optsHtml}</td>`;
     tbody.appendChild(tr);
   });
@@ -215,10 +260,9 @@ async function generateFromRaw(){
   fd.append('corrections',JSON.stringify(_corrections));
   fd.append('output_filename',document.getElementById('output-filename').value.trim());
 
-  const res=await fetch('/generate',{method:'POST',body:fd});
-  const data=await res.json();
-  if(!data.ok){showRawError(data.error);return;}
-  _outputFilename=data.output.split(/[\\/]/).pop();
+  const data=await requestJson('/generate',{method:'POST',body:fd});
+  if(!data.ok){showRawError(data.error||'Unknown error');return;}
+  _outputFilename=String(data.output||'').split(/[\\/]/).pop();
 
   const es=new EventSource('/stream');
   const logBox=document.getElementById('log-box');
@@ -239,7 +283,7 @@ function activateFileLink(id, filename){
   if(!filename) return;
   const el = document.getElementById(id);
   if(!el) return;
-  el.href     = '/download/' + filename;
+  el.href     = downloadUrl(filename);
   el.download = filename;
   el.classList.remove('opacity-50','pointer-events-none');
 }
@@ -251,7 +295,7 @@ function showRawResult(d){
   document.getElementById('r-subtotal').textContent=d.subtotal!=null?'$'+d.subtotal.toLocaleString('en-US',{minimumFractionDigits:2}):'—';
   document.getElementById('r-total').textContent=d.total!=null?'$'+d.total.toLocaleString('en-US',{minimumFractionDigits:2}):'—';
   // Invoice — always ready
-  document.getElementById('dl-invoice').href='/download/'+_outputFilename;
+  document.getElementById('dl-invoice').href=downloadUrl(_outputFilename);
   document.getElementById('dl-invoice').download=_outputFilename;
   // Corrected file and master filenames come in the same done payload
   activateFileLink('dl-corrected', d.corrected_filename);
@@ -263,7 +307,7 @@ function backToReview(){document.getElementById('step-result-raw').classList.add
 function resetAll(){location.reload();}
 
 // ── Legacy form ───────────────────────────────────────────────────────────────
-document.getElementById('legacy-form').addEventListener('submit',async e=>{
+document.getElementById('legacy-form')?.addEventListener('submit',async e=>{
   e.preventDefault();
   const btn=document.getElementById('legacy-btn');
   btn.disabled=true;btn.innerHTML='<span>⟳</span> Generating…';
@@ -275,12 +319,17 @@ document.getElementById('legacy-form').addEventListener('submit',async e=>{
 
   const fd=new FormData(e.target);
   fd.append('mode','legacy');
-  const res=await fetch('/generate',{method:'POST',body:fd});
-  const data=await res.json();
-  if(!data.ok){btn.disabled=false;btn.innerHTML='<span>⚡</span> Generate Invoice';alert('Error: '+data.error);return;}
-  const filename=data.output.split(/[\\/]/).pop();
+  const resetButton=()=>{btn.disabled=false;btn.innerHTML='<span>⚡</span> Generate Invoice';};
+  const data=await requestJson('/generate',{method:'POST',body:fd});
+  if(!data.ok){resetButton();document.getElementById('legacy-progress').classList.add('hidden');alert('Error: '+(data.error||'Unknown'));return;}
+  const filename=String(data.output||'').split(/[\\/]/).pop();
 
   const es=new EventSource('/stream');
+  es.onerror=()=>{
+    es.close();resetButton();
+    pbar.style.width='100%';pbar.classList.remove('shimmer');pbar.style.background='#ef4444';
+    alert('Error: Connection lost while generating. Check the output list before generating again.');
+  };
   es.onmessage=ev=>{
     const d=JSON.parse(ev.data);
     if(d.type==='done'){
@@ -292,7 +341,7 @@ document.getElementById('legacy-form').addEventListener('submit',async e=>{
         document.getElementById('l-subtotal').textContent=d.subtotal!=null?'$'+d.subtotal.toLocaleString('en-US',{minimumFractionDigits:2}):'—';
         document.getElementById('l-total').textContent=d.total!=null?'$'+d.total.toLocaleString('en-US',{minimumFractionDigits:2}):'—';
         const dlLink=document.getElementById('dl-legacy');
-        dlLink.href='/download/'+filename;dlLink.download=filename;
+        dlLink.href=downloadUrl(filename);dlLink.download=filename;
         document.getElementById('legacy-result').classList.remove('hidden');
       } else {alert('Error: '+(d.error||'Unknown'));}
     }
@@ -304,9 +353,23 @@ function resetLegacy(){document.getElementById('legacy-result').classList.add('h
 // SERIAL CONFIG PAGE
 // ══════════════════════════════════════════════════════════
 
+function showCfgStatus(ok, message){
+  const status=document.getElementById('cfg-status');
+  if(!status) return;
+  status.className='mb-4 px-4 py-2 rounded-lg text-sm font-mono '+(ok
+    ?'bg-ok/10 border border-ok/30 text-ok'
+    :'bg-warn/10 border border-warn/30 text-warn');
+  status.textContent=message;
+  clearTimeout(showCfgStatus._t);
+  showCfgStatus._t=setTimeout(()=>status.classList.add('hidden'),ok?4000:8000);
+}
+
 async function loadCfg(){
-  const res=await fetch('/config/serial_rules');
-  const data=await res.json();
+  const data=await requestJson('/config/serial_rules');
+  if(data.ok===false || !Array.isArray(data.rules)){
+    showCfgStatus(false,'✗ Could not load serial rules: '+(data.error||'unexpected response'));
+    return;
+  }
   renderCfgTable(data.rules);
 }
 
@@ -323,15 +386,16 @@ function makeCfgRow(r,i){
   const o2opts=['year_pos5','year_pos6','always','never'];
   const o2labels=['Year char (pos 5)','Year char (pos 6)','Always -02','Never -02'];
   const o2html=o2opts.map((v,j)=>`<option value="${v}"${r.o2_rule===v?' selected':''}>${o2labels[j]}</option>`).join('');
+  const yearPos=(r.year_pos===0||r.year_pos)?r.year_pos:'';
   tr.innerHTML=`
-    <td class="px-2 py-1.5"><input class="cfg-input font-mono" value="${r.prefix}" placeholder="e.g. 775T" data-field="prefix" /></td>
-    <td class="px-2 py-1.5"><input class="cfg-input font-mono w-12 text-center" value="${r.year_pos||''}" placeholder="5" data-field="year_pos" title="Position of year character in serial (0-indexed)" /></td>
-    <td class="px-2 py-1.5"><input class="cfg-input" value="${r.model_base}" placeholder="e.g. AP7-B75" data-field="model_base" /></td>
-    <td class="px-2 py-1.5"><select class="cfg-select" data-field="size">
+    <td class="px-2 py-1.5"><input class="cfg-input font-mono" value="${escHtml(r.prefix)}" placeholder="e.g. 775T" data-field="prefix" aria-label="Serial prefix" /></td>
+    <td class="px-2 py-1.5"><input class="cfg-input font-mono w-12 text-center" value="${escHtml(yearPos)}" placeholder="5" data-field="year_pos" title="Position of year character in serial (0-indexed)" aria-label="Year position" /></td>
+    <td class="px-2 py-1.5"><input class="cfg-input" value="${escHtml(r.model_base)}" placeholder="e.g. AP7-B75" data-field="model_base" aria-label="Model base" /></td>
+    <td class="px-2 py-1.5"><select class="cfg-select" data-field="size" aria-label="Size">
       ${['55','65','70','75','86'].map(s=>`<option${r.size===s?' selected':''}>${s}"</option>`).join('')}
     </select></td>
-    <td class="px-2 py-1.5"><select class="cfg-select" data-field="o2_rule">${o2html}</select></td>
-    <td class="px-2 py-1.5 text-center"><button onclick="deleteCfgRow(this)" class="text-steel hover:text-warn transition-colors text-base" title="Delete row">✕</button></td>`;
+    <td class="px-2 py-1.5"><select class="cfg-select" data-field="o2_rule" aria-label="-02 rule">${o2html}</select></td>
+    <td class="px-2 py-1.5 text-center"><button type="button" aria-label="Delete rule" onclick="deleteCfgRow(this)" class="text-steel hover:text-warn transition-colors text-base" title="Delete row">✕</button></td>`;
   return tr;
 }
 
@@ -348,28 +412,20 @@ function deleteCfgRow(btn){
 function collectCfgRules(){
   return Array.from(document.querySelectorAll('#cfg-tbody tr')).map(tr=>{
     const get=f=>tr.querySelector(`[data-field="${f}"]`)?.value?.trim()||'';
-    return {prefix:get('prefix'),year_pos:parseInt(get('year_pos'))||5,model_base:get('model_base'),size:get('size').replace('"',''),o2_rule:get('o2_rule')};
+    const yearPos=parseInt(get('year_pos'),10);
+    return {prefix:get('prefix'),year_pos:Number.isInteger(yearPos)&&yearPos>=0?yearPos:5,model_base:get('model_base'),size:get('size').replace('"',''),o2_rule:get('o2_rule')};
   }).filter(r=>r.prefix&&r.model_base);
 }
 
 async function saveCfg(){
   const rules=collectCfgRules();
-  const res=await fetch('/config/serial_rules',{
+  const data=await requestJson('/config/serial_rules',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({rules})
   });
-  const data=await res.json();
-  const status=document.getElementById('cfg-status');
-  status.classList.remove('hidden');
-  if(data.ok){
-    status.className='mb-4 px-4 py-2 rounded-lg text-sm font-mono bg-ok/10 border border-ok/30 text-ok';
-    status.textContent=`✓ Saved ${rules.length} rules successfully`;
-  } else {
-    status.className='mb-4 px-4 py-2 rounded-lg text-sm font-mono bg-warn/10 border border-warn/30 text-warn';
-    status.textContent='✗ Save failed: '+(data.error||'Unknown error');
-  }
-  setTimeout(()=>status.classList.add('hidden'),4000);
+  if(data.ok) showCfgStatus(true,`✓ Saved ${rules.length} rules successfully`);
+  else showCfgStatus(false,'✗ Save failed: '+(data.error||'Unknown error'));
 }
 
 // ── Theme toggle ──────────────────────────────────────────────────────────────
@@ -460,9 +516,9 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     let resp, data;
     try {
       resp = await fetch('/analyze_storage', {method:'POST', body:fd});
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
-      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${err}</div>`;
+      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${escHtml(err)}</div>`;
       btn.disabled = false; btn.textContent = 'Analyze Files →';
       return;
     }
@@ -515,12 +571,12 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     document.getElementById('s-log-box').innerHTML = '';
     document.getElementById('s-progress-bar').classList.remove('hidden');
 
-    const resp = await fetch('/confirm_storage', {
+    const data = await requestJson('/confirm_storage', {
       method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
     });
-    const data = await resp.json();
     if (!data.ok) {
       sLog('❌ ' + (data.error||'Error starting generation'));
+      document.getElementById('s-progress-bar').classList.add('hidden');
       btn.disabled=false; btn.textContent='Generate Invoice →';
       return;
     }
@@ -538,7 +594,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         else sLog('❌ ' + (msg.error||'Failed'));
       }
     };
-    es.onerror = () => { es.close(); sLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
+    es.onerror = () => { es.close(); document.getElementById('s-progress-bar').classList.add('hidden'); sLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
   };
 
   function sLog(msg) {
@@ -550,7 +606,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   function showStorageResult(msg) {
     document.getElementById('s-result-card').classList.remove('hidden');
     document.getElementById('s-result-filename').textContent = msg.filename||'';
-    document.getElementById('s-download-btn').href = '/download/'+(msg.filename||'');
+    document.getElementById('s-download-btn').href = downloadUrl(msg.filename);
     const fmt$ = n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const fmtN = n=>Number(n||0).toLocaleString();
     const stats=[
@@ -595,9 +651,9 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     let resp, data;
     try {
       resp = await fetch('/analyze_fedex_shipment', {method:'POST', body:fd});
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
-      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${err}</div>`;
+      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${escHtml(err)}</div>`;
       btn.disabled = false; btn.textContent = 'Analyze File →';
       return;
     }
@@ -632,7 +688,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const defaulted = data.defaulted_rows || [];
     document.getElementById('fx-defaulted-count').textContent = defaulted.length.toLocaleString();
     document.getElementById('fx-defaulted-list').innerHTML = defaulted.slice(0, 25).map(r =>
-      `<div class="font-mono">› ${r.tracking || ''}${r.po ? ' · PO ' + r.po : ''}</div>`).join('') +
+      `<div class="font-mono">› ${escHtml(r.tracking)}${r.po ? ' · PO ' + escHtml(r.po) : ''}</div>`).join('') +
       (defaulted.length > 25 ? `<div class="font-mono">…and ${defaulted.length - 25} more</div>` : '');
 
     const skipped = data.skipped_rows || [];
@@ -640,7 +696,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     skippedWrap.classList.toggle('hidden', skipped.length === 0);
     document.getElementById('fx-skipped-count').textContent = skipped.length.toLocaleString();
     document.getElementById('fx-skipped-list').innerHTML = skipped.slice(0, 25).map(r =>
-      `<div class="font-mono">› row ${r.row}${r.tracking ? ' · ' + r.tracking : ''} — ${r.reason}</div>`).join('') +
+      `<div class="font-mono">› row ${escHtml(r.row)}${r.tracking ? ' · ' + escHtml(r.tracking) : ''} — ${escHtml(r.reason)}</div>`).join('') +
       (skipped.length > 25 ? `<div class="font-mono">…and ${skipped.length - 25} more</div>` : '');
   }
 
@@ -653,12 +709,12 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     document.getElementById('fx-log-box').innerHTML = '';
     document.getElementById('fx-progress-bar').classList.remove('hidden');
 
-    const resp = await fetch('/build_fedex_shipment', {
+    const data = await requestJson('/build_fedex_shipment', {
       method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
     });
-    const data = await resp.json();
     if (!data.ok) {
       fxLog('❌ ' + (data.error||'Error starting build'));
+      document.getElementById('fx-progress-bar').classList.add('hidden');
       btn.disabled=false; btn.textContent='Build Upload File →';
       return;
     }
@@ -676,7 +732,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         else fxLog('❌ ' + (msg.error||'Failed'));
       }
     };
-    es.onerror = () => { es.close(); fxLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Build Upload File →'; };
+    es.onerror = () => { es.close(); document.getElementById('fx-progress-bar').classList.add('hidden'); fxLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Build Upload File →'; };
   };
 
   function fxLog(msg) {
@@ -688,7 +744,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   function showFxResult(msg) {
     document.getElementById('fx-result-card').classList.remove('hidden');
     document.getElementById('fx-result-filename').textContent = msg.filename||'';
-    document.getElementById('fx-download-btn').href = '/download/'+(msg.filename||'');
+    document.getElementById('fx-download-btn').href = downloadUrl(msg.filename);
     const fmt$ = n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const fmtN = n=>Number(n||0).toLocaleString();
     const stats=[
@@ -764,9 +820,9 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     let resp, data;
     try {
       resp = await fetch(url, {method:'POST', body:fd});
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
-      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${err}</div>`;
+      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${escHtml(err)}</div>`;
       btn.disabled = false; btn.textContent = defaultLabel;
       return;
     }
@@ -813,7 +869,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const reportWrap = document.getElementById('p-report-summary');
     if (data.report_filename) {
       reportWrap.classList.remove('hidden');
-      document.getElementById('p-report-download-btn').href = '/download/' + data.report_filename;
+      document.getElementById('p-report-download-btn').href = downloadUrl(data.report_filename);
       const flagged = data.flagged_received_count||0, pending = data.pending_repairs_count||0;
       document.getElementById('p-report-flagged-note').textContent =
         `${flagged.toLocaleString()} received row(s) flagged for review, ${pending.toLocaleString()} repair(s) still pending — both included as informational tabs.`;
@@ -828,11 +884,11 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
       wrap.classList.remove('hidden'); none.classList.add('hidden');
       document.getElementById('p-missing-dims-list').innerHTML = missing.map(m => `
         <div class="flex items-center gap-3">
-          <span class="text-slate-200 text-xs font-mono flex-1 truncate">${m}</span>
+          <span class="text-slate-200 text-xs font-mono flex-1 truncate">${escHtml(m)}</span>
           <span class="text-steel text-xs">sq ft</span>
           <input type="number" step="0.01" min="0" placeholder="skip"
             class="p-missing-dim-input w-28 bg-ink-100 border border-steel/50 rounded-lg px-3 py-1.5 text-sm text-slate-200"
-            data-model="${m.replace(/"/g,'&quot;')}" />
+            aria-label="Square feet for ${escHtml(m)}" data-model="${escHtml(m)}" />
         </div>`).join('');
     } else {
       wrap.classList.add('hidden'); none.classList.remove('hidden');
@@ -842,17 +898,26 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   // ── Confirm + Generate ────────────────────────────────────────────────────
   window.pConfirmAndGenerate = async function() {
     const btn = document.getElementById('p-confirm-btn');
-    btn.disabled = true; btn.textContent = 'Generating…';
-
+    // Blank means "skip"; anything else must be a non-negative number. Checked
+    // before any request so a typo cannot silently change billed square footage.
+    const dimensions = {};
+    const badDims = [];
+    document.querySelectorAll('.p-missing-dim-input').forEach(inp => {
+      inp.classList.remove('border-warn');
+      if (String(inp.value).trim() === '' && !(inp.validity && inp.validity.badInput)) return;
+      const n = nonNegativeValue(inp);
+      if (Number.isNaN(n)) { badDims.push(inp.dataset.model); inp.classList.add('border-warn'); }
+      else dimensions[inp.dataset.model] = n;
+    });
     document.getElementById('p-log-wrap').classList.remove('hidden');
     document.getElementById('p-result-card').classList.add('hidden');
     document.getElementById('p-log-box').innerHTML = '';
+    if (badDims.length) {
+      pLog('❌ Enter a square footage of 0 or more (or leave blank to skip) for: ' + badDims.join(', '));
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Generating…';
     document.getElementById('p-progress-bar').classList.remove('hidden');
-
-    const dimensions = {};
-    document.querySelectorAll('.p-missing-dim-input').forEach(inp => {
-      if (inp.value !== '') dimensions[inp.dataset.model] = parseFloat(inp.value);
-    });
 
     let resp, data;
     try {
@@ -860,7 +925,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({dimensions})
       });
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
       pLog('❌ Network error: ' + err);
       btn.disabled=false; btn.textContent='Generate Invoice →';
@@ -868,6 +933,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     }
     if (!data.ok) {
       pLog('❌ ' + (data.error||'Error starting generation'));
+      document.getElementById('p-progress-bar').classList.add('hidden');
       btn.disabled=false; btn.textContent='Generate Invoice →';
       return;
     }
@@ -885,17 +951,17 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         else pLog('❌ ' + (msg.error||'Failed'));
       }
     };
-    es.onerror = () => { es.close(); pLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
+    es.onerror = () => { es.close(); document.getElementById('p-progress-bar').classList.add('hidden'); pLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
   };
 
   function pShowResult(msg) {
     document.getElementById('p-result-card').classList.remove('hidden');
     document.getElementById('p-result-filename').textContent = msg.filename||'';
-    document.getElementById('p-download-btn').href = '/download/'+(msg.filename||'');
+    document.getElementById('p-download-btn').href = downloadUrl(msg.filename);
     const reportBtn = document.getElementById('p-result-report-btn');
     if (msg.report_filename) {
       reportBtn.classList.remove('hidden');
-      reportBtn.href = '/download/'+msg.report_filename;
+      reportBtn.href = downloadUrl(msg.report_filename);
     } else {
       reportBtn.classList.add('hidden');
     }
@@ -961,9 +1027,9 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     let resp, data;
     try {
       resp = await fetch('/analyze_amc', {method:'POST', body:fd});
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
-      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${err}</div>`;
+      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${escHtml(err)}</div>`;
       btn.disabled = false; btn.textContent = 'Analyze →';
       return;
     }
@@ -1002,11 +1068,11 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
       wrap.classList.remove('hidden'); none.classList.add('hidden');
       document.getElementById('a-missing-dims-list').innerHTML = missing.map(m => `
         <div class="flex items-center gap-3">
-          <span class="text-slate-200 text-xs font-mono flex-1 truncate">${m}</span>
+          <span class="text-slate-200 text-xs font-mono flex-1 truncate">${escHtml(m)}</span>
           <span class="text-steel text-xs">sq ft</span>
           <input type="number" step="0.01" min="0" placeholder="skip"
             class="a-missing-dim-input w-28 bg-ink-100 border border-steel/50 rounded-lg px-3 py-1.5 text-sm text-slate-200"
-            data-model="${m.replace(/"/g,'&quot;')}" />
+            aria-label="Square feet for ${escHtml(m)}" data-model="${escHtml(m)}" />
         </div>`).join('');
     } else {
       wrap.classList.add('hidden'); none.classList.remove('hidden');
@@ -1016,17 +1082,26 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   // ── Confirm + Generate ────────────────────────────────────────────────────
   window.aConfirmAndGenerate = async function() {
     const btn = document.getElementById('a-confirm-btn');
-    btn.disabled = true; btn.textContent = 'Generating…';
-
+    // Blank means "skip"; anything else must be a non-negative number. Checked
+    // before any request so a typo cannot silently change billed square footage.
+    const dimensions = {};
+    const badDims = [];
+    document.querySelectorAll('.a-missing-dim-input').forEach(inp => {
+      inp.classList.remove('border-warn');
+      if (String(inp.value).trim() === '' && !(inp.validity && inp.validity.badInput)) return;
+      const n = nonNegativeValue(inp);
+      if (Number.isNaN(n)) { badDims.push(inp.dataset.model); inp.classList.add('border-warn'); }
+      else dimensions[inp.dataset.model] = n;
+    });
     document.getElementById('a-log-wrap').classList.remove('hidden');
     document.getElementById('a-result-card').classList.add('hidden');
     document.getElementById('a-log-box').innerHTML = '';
+    if (badDims.length) {
+      aLog('❌ Enter a square footage of 0 or more (or leave blank to skip) for: ' + badDims.join(', '));
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Generating…';
     document.getElementById('a-progress-bar').classList.remove('hidden');
-
-    const dimensions = {};
-    document.querySelectorAll('.a-missing-dim-input').forEach(inp => {
-      if (inp.value !== '') dimensions[inp.dataset.model] = parseFloat(inp.value);
-    });
 
     let resp, data;
     try {
@@ -1034,7 +1109,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({dimensions})
       });
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
       aLog('❌ Network error: ' + err);
       btn.disabled=false; btn.textContent='Generate Invoice →';
@@ -1042,6 +1117,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     }
     if (!data.ok) {
       aLog('❌ ' + (data.error||'Error starting generation'));
+      document.getElementById('a-progress-bar').classList.add('hidden');
       btn.disabled=false; btn.textContent='Generate Invoice →';
       return;
     }
@@ -1059,7 +1135,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         else aLog('❌ ' + (msg.error||'Failed'));
       }
     };
-    es.onerror = () => { es.close(); aLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
+    es.onerror = () => { es.close(); document.getElementById('a-progress-bar').classList.add('hidden'); aLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
   };
 
   function aLog(msg) {
@@ -1071,7 +1147,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   function aShowResult(msg) {
     document.getElementById('a-result-card').classList.remove('hidden');
     document.getElementById('a-result-filename').textContent = msg.filename||'';
-    document.getElementById('a-download-btn').href = '/download/'+(msg.filename||'');
+    document.getElementById('a-download-btn').href = downloadUrl(msg.filename);
     const fmt$ = n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const fmtN = n=>Number(n||0).toLocaleString();
     const stats=[
@@ -1120,9 +1196,9 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     let resp, data;
     try {
       resp = await fetch('/analyze_tcl', {method:'POST', body:fd});
-      data = await resp.json();
+      data = await readJson(resp);
     } catch(err) {
-      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${err}</div>`;
+      logBox.innerHTML = `<div class="text-warn">❌ Network error: ${escHtml(err)}</div>`;
       btn.disabled = false; btn.textContent = 'Analyze Inventory →';
       return;
     }
@@ -1161,14 +1237,14 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
       pWrap.innerHTML = data.unit_groups.map(g => `
         <div class="flex items-center gap-3 bg-ink-50 border border-steel/30 rounded-lg p-3">
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-slate-200">Received <span class="font-mono">${g.received_date}</span></div>
-            <div class="text-xs text-steel font-mono">${g.quantity} units</div>
+            <div class="text-sm text-slate-200">Received <span class="font-mono">${escHtml(g.received_date)}</span></div>
+            <div class="text-xs text-steel font-mono">${escHtml(g.quantity)} units</div>
           </div>
-          <input type="text" data-unit-key="${g.key}" data-qty="${g.quantity}"
-            value="${g.quantity}"
+          <input type="text" data-unit-key="${escHtml(g.key)}" data-qty="${escHtml(g.quantity)}"
+            value="${escHtml(g.quantity)}" aria-label="Pallet breakdown for units received ${escHtml(g.received_date)}"
             class="t-unit-input w-56 bg-ink-100 border border-steel/50 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono"
             placeholder="e.g. 7,7,5,7,4" oninput="tValidateGroup(this)" />
-          <span class="text-xs font-mono w-24 text-right" data-check-for="${g.key}"></span>
+          <span class="text-xs font-mono w-24 text-right" data-check-for="${escHtml(g.key)}" aria-live="polite"></span>
         </div>`).join('');
     }
 
@@ -1180,14 +1256,14 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
       bWrap.innerHTML = data.part_groups.map(g => `
         <div class="flex items-center gap-3 bg-ink-50 border border-steel/30 rounded-lg p-2.5">
           <div class="flex-1 min-w-0">
-            <div class="text-sm text-slate-200 font-mono truncate">${g.model}</div>
-            <div class="text-xs text-steel font-mono">recv ${g.received_date} · ${g.quantity} pcs</div>
+            <div class="text-sm text-slate-200 font-mono truncate">${escHtml(g.model)}</div>
+            <div class="text-xs text-steel font-mono">recv ${escHtml(g.received_date)} · ${escHtml(g.quantity)} pcs</div>
           </div>
-          <input type="text" data-box-key="${g.key}" data-qty="${g.quantity}"
-            value="${tDefaultBoxBreakdown(g.quantity)}"
+          <input type="text" data-box-key="${escHtml(g.key)}" data-qty="${escHtml(g.quantity)}"
+            value="${escHtml(tDefaultBoxBreakdown(g.quantity))}" aria-label="Box breakdown for ${escHtml(g.model)}"
             class="t-box-input w-40 bg-ink-100 border border-steel/50 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono"
             placeholder="e.g. 20,20,10" oninput="tValidateGroup(this)" onblur="tAutoSplitBoxInput(this)" />
-          <span class="text-xs font-mono w-20 text-right" data-check-for="${g.key}"></span>
+          <span class="text-xs font-mono w-20 text-right" data-check-for="${escHtml(g.key)}" aria-live="polite"></span>
         </div>`).join('');
     }
 
@@ -1228,7 +1304,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   window.tValidateGroup = function(input) {
     const key = input.dataset.unitKey || input.dataset.boxKey;
     const expected = parseInt(input.dataset.qty, 10);
-    const check = document.querySelector(`[data-check-for="${key}"]`);
+    const check = document.querySelector(`[data-check-for="${cssAttr(key)}"]`);
     const parts = input.value.split(',').map(s=>s.trim()).filter(Boolean).map(Number);
     const sum = parts.reduce((a,b)=>a+(isNaN(b)?0:b),0);
     const valid = parts.length>0 && parts.every(n=>Number.isInteger(n) && n>0) && sum===expected;
@@ -1251,7 +1327,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const errBox = document.getElementById('t-validation-errors');
     if (badInputs.length) {
       errBox.classList.remove('hidden');
-      errBox.innerHTML = `❌ ${badInputs.length} group(s) don't sum to their total yet — check the highlighted fields above.`;
+      errBox.textContent = `❌ ${badInputs.length} group(s) don't sum to their total yet — check the highlighted fields above.`;
       badInputs[0].scrollIntoView({behavior:'smooth', block:'center'});
       return;
     }
@@ -1270,14 +1346,14 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const box_breakdowns = {};
     document.querySelectorAll('.t-box-input').forEach(inp => { box_breakdowns[inp.dataset.boxKey] = inp.value; });
 
-    const resp = await fetch('/confirm_tcl', {
+    const data = await requestJson('/confirm_tcl', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({unit_breakdowns, box_breakdowns})
     });
-    const data = await resp.json();
     if (!data.ok) {
       tLog('❌ ' + (data.error||'Error starting generation'));
-      if (data.field_errors) data.field_errors.forEach(m => tLog('  · ' + m));
+      if (Array.isArray(data.field_errors)) data.field_errors.forEach(m => tLog('  · ' + m));
+      document.getElementById('t-progress-bar').classList.add('hidden');
       btn.disabled=false; btn.textContent='Generate Invoice →';
       return;
     }
@@ -1295,7 +1371,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
         else tLog('❌ ' + (msg.error||'Failed'));
       }
     };
-    es.onerror = () => { es.close(); tLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
+    es.onerror = () => { es.close(); document.getElementById('t-progress-bar').classList.add('hidden'); tLog('⚠ Connection lost'); btn.disabled=false; btn.textContent='Generate Invoice →'; };
   };
 
   function tLog(msg) {
@@ -1307,7 +1383,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   function showTclResult(msg) {
     document.getElementById('t-result-card').classList.remove('hidden');
     document.getElementById('t-result-filename').textContent = msg.filename||'';
-    document.getElementById('t-download-btn').href = '/download/'+(msg.filename||'');
+    document.getElementById('t-download-btn').href = downloadUrl(msg.filename);
     const fmt$ = n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
     const fmtN = n=>Number(n||0).toLocaleString();
     const stats=[
@@ -1322,6 +1398,14 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     document.getElementById('t-total').textContent    = fmt$(msg.total);
   }
 })();
+
+function showSaveStatus(el, ok, message) {
+  if (!el) return;
+  el.className = 'mb-3 px-4 py-2 rounded-lg text-sm font-mono ' + (ok ? 'bg-ok/10 text-ok border border-ok/30' : 'bg-warn/10 text-warn border border-warn/30');
+  el.textContent = message;
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => el.classList.add('hidden'), ok ? 3000 : 8000);
+}
 
 (function() {
   // ── Admin pricing panel ───────────────────────────────────────────────────
@@ -1348,10 +1432,10 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const lf = document.getElementById('line-prices-form');
     if(lf) lf.innerHTML = Object.entries(_pricingCurrent.line_prices).map(([k,v])=>`
       <div class="flex items-center justify-between gap-3">
-        <label class="text-steel text-xs flex-1">${LINE_LABELS[k]||k}</label>
+        <label class="text-steel text-xs flex-1" for="line-price-${escHtml(k)}">${escHtml(LINE_LABELS[k]||k)}</label>
         <div class="flex items-center gap-1">
           <span class="text-steel text-xs">$</span>
-          <input type="number" step="0.01" min="0" value="${v}" data-key="${k}" data-type="line"
+          <input type="number" step="0.01" min="0" value="${escHtml(v)}" data-key="${escHtml(k)}" data-type="line" id="line-price-${escHtml(k)}"
             class="w-20 bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200 text-right" />
         </div>
       </div>`).join('');
@@ -1359,36 +1443,41 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     const pf = document.getElementById('part-prices-form');
     if(pf) pf.innerHTML = Object.entries(_pricingCurrent.part_type_prices).map(([k,v])=>`
       <div class="flex items-center justify-between gap-3">
-        <label class="text-steel text-xs flex-1">${k}</label>
+        <label class="text-steel text-xs flex-1">${escHtml(k)}</label>
         <div class="flex items-center gap-1">
           <span class="text-steel text-xs">$</span>
-          <input type="number" step="0.01" min="0" value="${v}" data-key="${k}" data-type="part"
+          <input type="number" step="0.01" min="0" value="${escHtml(v)}" data-key="${escHtml(k)}" data-type="part" aria-label="${escHtml(k)} price"
             class="w-20 bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200 text-right" />
         </div>
       </div>`).join('');
   }
 
   window.savePricing = async function() {
-    const linePrices = {}, partPrices = {};
-    document.querySelectorAll('[data-type="line"]').forEach(inp => linePrices[inp.dataset.key] = parseFloat(inp.value)||0);
-    document.querySelectorAll('[data-type="part"]').forEach(inp => partPrices[inp.dataset.key] = parseFloat(inp.value)||0);
+    const linePrices = {}, partPrices = {}, invalid = [];
+    const collect = (selector, target) => document.querySelectorAll(selector).forEach(inp => {
+      const n = nonNegativeValue(inp);
+      inp.classList.toggle('border-warn', Number.isNaN(n));
+      if (Number.isNaN(n)) invalid.push(inp.dataset.key); else target[inp.dataset.key] = n;
+    });
+    collect('[data-type="line"]', linePrices);
+    collect('[data-type="part"]', partPrices);
     const st = document.getElementById('pricing-status');
-    try {
-      const r = await fetch('/set_storage_prices',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({part_type_prices:partPrices,line_prices:linePrices})});
-      const d = await r.json();
-      st.className='mb-3 px-4 py-2 rounded-lg text-sm font-mono '+(d.ok?'bg-ok/10 text-ok border border-ok/30':'bg-warn/10 text-warn border border-warn/30');
-      st.textContent = d.ok ? '✓ Prices saved' : '❌ '+d.error;
-      st.classList.remove('hidden');
-      if(d.ok){_pricingCurrent={part_type_prices:{...partPrices},line_prices:{...linePrices}};}
-    } catch(e) { st.textContent='❌ Network error'; st.classList.remove('hidden'); }
-    setTimeout(()=>st.classList.add('hidden'), 3000);
+    if (invalid.length) {
+      // A blank or mistyped field used to be saved as $0.00 and billed that way.
+      showSaveStatus(st, false, 'Nothing saved. Enter a price of 0 or more for: ' + invalid.join(', '));
+      return;
+    }
+    const d = await requestJson('/set_storage_prices',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({part_type_prices:partPrices,line_prices:linePrices})});
+    showSaveStatus(st, d.ok, d.ok ? '✓ Prices saved' : '❌ ' + (d.error||'Save failed'));
+    if(d.ok){_pricingCurrent={part_type_prices:{...partPrices},line_prices:{...linePrices}};}
   };
 
   window.resetPricing = function() {
     if(!confirm('Reset all storage prices to defaults?')) return;
     _pricingCurrent = {part_type_prices:{..._pricingDefaults.part_type_prices}, line_prices:{..._pricingDefaults.line_prices}};
     renderPricingForm();
+    showSaveStatus(document.getElementById('pricing-status'), true, 'Defaults loaded — click Save Pricing Changes to apply them.');
   };
 
   // Load pricing when config tab is shown (lazy)
@@ -1460,12 +1549,14 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
   function rcRender(tiers) {
     const form = document.getElementById('rc-tiers-form');
     if (!form) return;
+    // box_build is not edited here but is part of each stored tier; carry it
+    // through unchanged so saving prices does not reset it to 0.
     form.innerHTML = tiers.map((t,i) => `
-      <div class="grid grid-cols-4 gap-2 items-center" data-idx="${i}">
-        <input type="text" value="${t.size}" placeholder="50 or 20-24" class="rc-size bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
-        <input type="number" step="1" min="0" value="${t.rb_price}" class="rc-rb bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
-        <input type="number" step="1" min="0" value="${t.harvest_price}" class="rc-harvest bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
-        <button onclick="rcRemoveTier(${i})" class="text-warn text-xs font-mono hover:opacity-70 transition-all">✕</button>
+      <div class="grid grid-cols-4 gap-2 items-center" data-idx="${i}" data-box-build="${escHtml(t.box_build ?? 0)}">
+        <input type="text" value="${escHtml(t.size)}" placeholder="50 or 20-24" aria-label="Screen size" class="rc-size bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
+        <input type="number" step="1" min="0" value="${escHtml(t.rb_price)}" aria-label="Refurbish price" class="rc-rb bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
+        <input type="number" step="1" min="0" value="${escHtml(t.harvest_price)}" aria-label="Harvest price" class="rc-harvest bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200" />
+        <button type="button" onclick="rcRemoveTier(${i})" aria-label="Remove tier" class="text-warn text-xs font-mono hover:opacity-70 transition-all">✕</button>
       </div>`).join('');
   }
 
@@ -1482,14 +1573,18 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     rcRender(rows);
   };
 
-  function rcCollect() {
+  // strict=false keeps raw values so add/remove re-renders never discard what
+  // the user typed; strict=true returns NaN for blank/invalid/negative prices.
+  function rcCollect(strict) {
     const rows = [];
+    const price = inp => strict ? nonNegativeValue(inp) : (inp.value === '' ? '' : Number(inp.value));
     document.querySelectorAll('#rc-tiers-form [data-idx]').forEach(row => {
+      const boxBuild = Number(row.dataset.boxBuild);
       rows.push({
         size: row.querySelector('.rc-size').value.trim(),
-        rb_price: parseFloat(row.querySelector('.rc-rb').value)||0,
-        harvest_price: parseFloat(row.querySelector('.rc-harvest').value)||0,
-        box_build: 0,
+        rb_price: price(row.querySelector('.rc-rb')),
+        harvest_price: price(row.querySelector('.rc-harvest')),
+        box_build: Number.isFinite(boxBuild) ? boxBuild : 0,
       });
     });
     return rows;
@@ -1497,19 +1592,16 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
 
   window.rcSave = async function() {
     const st = document.getElementById('rc-status');
-    const tiers = rcCollect().filter(t => t.size !== '');
-    try {
-      const r = await fetch('/set_philips_repair_cost', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({tiers})});
-      const d = await r.json();
-      st.className = 'mb-3 px-4 py-2 rounded-lg text-sm font-mono ' + (d.ok?'bg-ok/10 text-ok border border-ok/30':'bg-warn/10 text-warn border border-warn/30');
-      st.textContent = d.ok ? `✓ Saved ${d.count} tier(s)` : '❌ ' + (d.error||'Save failed');
-      st.classList.remove('hidden');
-      if (d.ok) rcRender(tiers);
-    } catch(e) {
-      st.textContent = '❌ Network error'; st.classList.remove('hidden');
+    const tiers = rcCollect(true).filter(t => t.size !== '');
+    const invalid = tiers.filter(t => Number.isNaN(t.rb_price) || Number.isNaN(t.harvest_price)).map(t => t.size);
+    if (invalid.length) {
+      showSaveStatus(st, false, 'Nothing saved. Enter prices of 0 or more for size(s): ' + invalid.join(', '));
+      return;
     }
-    setTimeout(()=>st.classList.add('hidden'), 3000);
+    const d = await requestJson('/set_philips_repair_cost', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tiers})});
+    showSaveStatus(st, d.ok, d.ok ? `✓ Saved ${d.count ?? tiers.length} tier(s)` : '❌ ' + (d.error||'Save failed'));
+    if (d.ok) rcRender(tiers);
   };
 })();
 
@@ -1581,35 +1673,38 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     if (!form) return;
     form.innerHTML = Object.entries(_amcPricesCurrent).map(([k,v])=>`
       <div class="flex items-center justify-between gap-3">
-        <label class="text-steel text-xs flex-1">${AMC_PRICE_LABELS[k]||k}</label>
+        <label class="text-steel text-xs flex-1" for="amc-price-${escHtml(k)}">${escHtml(AMC_PRICE_LABELS[k]||k)}</label>
         <div class="flex items-center gap-1">
           <span class="text-steel text-xs">$</span>
-          <input type="number" step="0.01" min="0" value="${v}" data-key="${k}"
+          <input type="number" step="0.01" min="0" value="${escHtml(v)}" data-key="${escHtml(k)}" id="amc-price-${escHtml(k)}"
             class="amc-price-input w-24 bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200 text-right" />
         </div>
       </div>`).join('');
   }
 
   window.amcSavePricing = async function() {
-    const prices = {};
-    document.querySelectorAll('.amc-price-input').forEach(inp => prices[inp.dataset.key] = parseFloat(inp.value)||0);
+    const prices = {}, invalid = [];
+    document.querySelectorAll('.amc-price-input').forEach(inp => {
+      const n = nonNegativeValue(inp);
+      inp.classList.toggle('border-warn', Number.isNaN(n));
+      if (Number.isNaN(n)) invalid.push(AMC_PRICE_LABELS[inp.dataset.key] || inp.dataset.key); else prices[inp.dataset.key] = n;
+    });
     const st = document.getElementById('amc-pricing-status');
-    try {
-      const r = await fetch('/set_amc_prices', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({prices})});
-      const d = await r.json();
-      st.className='mb-3 px-4 py-2 rounded-lg text-sm font-mono '+(d.ok?'bg-ok/10 text-ok border border-ok/30':'bg-warn/10 text-warn border border-warn/30');
-      st.textContent = d.ok ? '✓ Prices saved' : '❌ '+d.error;
-      st.classList.remove('hidden');
-      if (d.ok) _amcPricesCurrent = {...prices};
-    } catch(e) { st.textContent='❌ Network error'; st.classList.remove('hidden'); }
-    setTimeout(()=>st.classList.add('hidden'), 3000);
+    if (invalid.length) {
+      showSaveStatus(st, false, 'Nothing saved. Enter a value of 0 or more for: ' + invalid.join(', '));
+      return;
+    }
+    const d = await requestJson('/set_amc_prices', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({prices})});
+    showSaveStatus(st, d.ok, d.ok ? '✓ Prices saved' : '❌ ' + (d.error||'Save failed'));
+    if (d.ok) _amcPricesCurrent = {...prices};
   };
 
   window.amcResetPricing = function() {
     if(!confirm('Reset all AMC prices to defaults?')) return;
     _amcPricesCurrent = {..._amcPricesDefaults};
     amcRenderPricingForm();
+    showSaveStatus(document.getElementById('amc-pricing-status'), true, 'Defaults loaded — click Save AMC Pricing to apply them.');
   };
 
   // Load AMC admin data when the config tab is shown (lazy, chained onto the existing hook)
@@ -1726,9 +1821,11 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') hideAbout(); })
     if (portal === 'invoice-generator') {
       // Restore whichever client/page was last active. If Config was cleared
       // while another portal was open, return to the safe Promethean default.
-      const activeNav = document.querySelector('.side-link.nav-btn.active');
-      const page = activeNav ? activeNav.dataset.page : 'promethean';
-      showPage(page);
+      const permitted = [...document.querySelectorAll('.side-link.nav-btn[data-page]')]
+        .filter(el => !el.classList.contains('hidden'));
+      const activeNav = permitted.find(el => el.classList.contains('active'));
+      const page = activeNav ? activeNav.dataset.page : (permitted[0] ? permitted[0].dataset.page : null);
+      if (page) showPage(page);
     } else if (portal === 'sms-nonconforming') {
       const configNav = document.getElementById('nav-config');
       configNav?.classList.remove('active');

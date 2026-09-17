@@ -3,7 +3,8 @@ component output=false {
 
     array function readSheet(required string path, required string sheetName, numeric headerRow=1){
         var fis=createObject("java","java.io.FileInputStream").init(arguments.path);
-        var wb=createObject("java","org.apache.poi.ss.usermodel.WorkbookFactory").create(fis);
+        var wb="";
+        try{wb=createObject("java","org.apache.poi.ss.usermodel.WorkbookFactory").create(fis);}catch(any e){fis.close();throw(type="Logicore.Excel",message="The uploaded file is not a readable Excel workbook (#getFileFromPath(arguments.path)#).",detail=e.message);}
         try{
             var sheet=wb.getSheet(arguments.sheetName);
             if(isNull(sheet))throw(type="Logicore.Excel",message="Sheet '#arguments.sheetName#' was not found in #getFileFromPath(arguments.path)#.");
@@ -50,7 +51,8 @@ component output=false {
 
     array function readFirstSheet(required string path,numeric headerRow=1){
         var fis=createObject("java","java.io.FileInputStream").init(arguments.path);
-        var wb=createObject("java","org.apache.poi.ss.usermodel.WorkbookFactory").create(fis);
+        var wb="";
+        try{wb=createObject("java","org.apache.poi.ss.usermodel.WorkbookFactory").create(fis);}catch(any e){fis.close();throw(type="Logicore.Excel",message="The uploaded file is not a readable Excel workbook (#getFileFromPath(arguments.path)#).",detail=e.message);}
         try{var name=wb.getSheetAt(0).getSheetName();}finally{wb.close();fis.close();}
         return readSheet(arguments.path,name,arguments.headerRow);
     }

@@ -28,6 +28,9 @@ expect_status "/data/logicore.mv.db" '^(403|404)$'
 expect_status "/config/serial_rules.json" '^(403|404)$'
 expect_status "/services/AuthService.cfc" '^(403|404)$'
 expect_status "/tests/billing_parity.cfm" '^(403|404)$'
+expect_status "/index.cfm/tests/billing_parity.cfm" '^(403|404)$'
+expect_status "/views/portal.html" '^(403|404)$'
+expect_status "/.github/workflows/lucee-smoke-test.yml" '^(403|404)$'
 
 echo "Deployment checks passed for $BASE_URL"
 

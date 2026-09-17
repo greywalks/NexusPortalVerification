@@ -14,8 +14,8 @@
       "enable": true
     },
     "rules": [
-      "regex-nocase('^/(data|uploads|outputs|services|routes|config|migration|template|scripts)/') -> set-error(404)",
-      "regex-nocase('^/(Application\\.cfc|server\\.json|\\.CFConfig\\.json|MIGRATION_PARITY\\.md|README\\.md)$') -> set-error(404)"
+      "regex-nocase('^/(\\.git|\\.github|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy|views|build|node_modules)/') -> set-error(404)",
+      "regex-nocase('^/(Application\\.cfc|server\\.json|\\.CFConfig\\.json|\\.gitignore|\\.htaccess|[^/]+\\.md)$') -> set-error(404)"
     ],
     "HTTP": {
       "enable": true,

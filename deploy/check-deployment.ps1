@@ -29,6 +29,9 @@ $Expected = @{
     "/config/serial_rules.json" = @(403,404)
     "/services/AuthService.cfc" = @(403,404)
     "/tests/billing_parity.cfm" = @(403,404)
+    "/index.cfm/tests/billing_parity.cfm" = @(403,404)
+    "/views/portal.html" = @(403,404)
+    "/.github/workflows/lucee-smoke-test.yml" = @(403,404)
 }
 foreach ($Path in $Expected.Keys) {
     $Status = Get-Status $Path

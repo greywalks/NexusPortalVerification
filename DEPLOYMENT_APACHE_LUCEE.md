@@ -44,7 +44,9 @@ LUCEE_ADMIN_PASSWORD=<strong administrative password>
 
 Optionally set `USSI_NEXUS_RUNTIME_ROOT` to an absolute persistent directory. When set, `data/`, `uploads/`, and `outputs/` are created beneath that directory instead of the code checkout. Create that directory first and grant the Lucee service identity read/write access. This is recommended when releases are deployed into versioned or replaceable directories.
 
-`USSI_NEXUS_ENV=production` enables Secure session cookies. Use the bootstrap password only for an empty database, then change it through the portal. Existing databases retain their existing users and password hashes.
+`USSI_NEXUS_ENV=production` enables Secure session cookies and HSTS, and makes `USSI_NEXUS_BOOTSTRAP_PASSWORD` mandatory when the user database is empty: the application refuses to start rather than create the first administrator with a built-in default password. Use the bootstrap password only for an empty database, then change it through the portal. Existing databases retain their users; password hashes are upgraded to PBKDF2 transparently on each user's next sign-in. The bootstrap username is also the account that is always kept as a superadmin.
+
+State-changing requests must carry an `Origin` or `Referer` header whose host matches the request host. Keep `ProxyPreserveHost On` in the Apache site (as in the supplied example) so Lucee sees the public host name; without it every form submission and API call from the browser is rejected with 403.
 
 The committed `.CFConfig.json` documents the H2 extension for CommandBox. Production does not depend on CommandBox importing it: `prepare-linux.sh` installs the verified H2 JAR directly into `lib/`, which `Application.cfc` loads through `this.javaSettings`.
 
@@ -86,6 +88,7 @@ After updating code:
 3. Run `apache2ctl configtest` and reload Apache.
 4. Run `bash deploy/check-deployment.sh https://nexus.example.com`.
 5. Sign in and test one upload/generation/download workflow.
+6. Optionally run the browser regression suite from a workstation with Node.js: `npm install jsdom@24 && node tests/frontend/portal_regression.test.js`.
 
 ## Apache security behavior
 

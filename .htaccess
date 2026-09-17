@@ -9,8 +9,10 @@ DirectoryIndex index.cfm
     RewriteEngine On
 
     # Never expose application internals, mutable runtime data, tests, or deployment files.
-    RewriteRule ^(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$) - [R=404,L,NC]
-    RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|[^/]+\.md)$ - [R=404,L,NC]
+    RewriteRule ^(?:\.git|\.github|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy|views|build|node_modules)(?:/|$) - [R=404,L,NC]
+    RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|\.gitignore|\.htaccess|package(?:-lock)?\.json|[^/]+\.md)$ - [R=404,L,NC]
+    # Routed requests for the test fixture are answered by index.cfm; stop them at the web tier too.
+    RewriteRule ^index\.cfm/tests(?:/|$) - [R=404,L,NC]
     RewriteRule ^(?!index\.cfm(?:/|$)).*\.cf[cm](?:/|$) - [R=404,L,NC]
 
     # Application routes use explicit /index.cfm/... URLs. No catch-all rewrite is required.

@@ -16,6 +16,19 @@
     return nativeFetch(typeof input === 'string' ? explicitRoute(input) : input, init);
   };
 
+  // Server-sent progress streams (/stream, /stream_amc, ...) are opened with
+  // EventSource, which bypasses the fetch shim above. Without this, Apache
+  // deployments (no catch-all rewrite) return 404 for every invoice stream.
+  const NativeEventSource = window.EventSource;
+  if (typeof NativeEventSource === 'function') {
+    const RoutedEventSource = function (url, config) {
+      return new NativeEventSource(typeof url === 'string' ? explicitRoute(url) : url, config);
+    };
+    RoutedEventSource.prototype = NativeEventSource.prototype;
+    ['CONNECTING', 'OPEN', 'CLOSED'].forEach(function (name) { RoutedEventSource[name] = NativeEventSource[name]; });
+    window.EventSource = RoutedEventSource;
+  }
+
   function rewriteAttribute(element, attribute) {
     const value = element.getAttribute(attribute);
     const explicit = explicitRoute(value);

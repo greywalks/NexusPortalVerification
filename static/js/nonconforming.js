@@ -31,6 +31,22 @@
 
   function $(id) { return document.getElementById(id); }
 
+  // Full-page navigations bypass the fetch() route shim in theme-init.js, so
+  // they must add the explicit /index.cfm prefix themselves.
+  function navigate(url) {
+    window.location.href = typeof window.ussiRouteUrl === "function" ? window.ussiRouteUrl(url) : url;
+  }
+
+  async function readJson(res) {
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!data || typeof data !== "object") {
+      return { ok: false, error: `Unexpected server response (HTTP ${res.status}). Your session may have expired; reload the page.` };
+    }
+    if (!res.ok) return Object.assign({}, data, { ok: false, error: data.error || `Request failed (HTTP ${res.status})` });
+    return data;
+  }
+
   function escapeHtml(s) {
     if (s === null || s === undefined) return "";
     return String(s).replace(/[&<>"']/g, c => ({
@@ -39,23 +55,28 @@
   }
 
   // ── Load / render table ───────────────────────────────────────────────
+  let loadSeq = 0;
   async function loadItems() {
     const params = new URLSearchParams({
       limit: PAGE_SIZE, offset: state.offset,
     });
     if (state.q) params.set("q", state.q);
     if (state.status) params.set("status", state.status);
+    // Only the most recent request may update the table; a slow earlier search
+    // must not replace newer results.
+    const seq = ++loadSeq;
     let data;
     try {
       const res = await fetch(`/nonconforming/api/items?${params}`);
-      data = await res.json();
+      data = await readJson(res);
     } catch (e) {
-      return;
+      data = { ok: false, error: "Network error — could not load items." };
     }
-    if (!data.ok) return;
+    if (seq !== loadSeq) return;
+    if (!data.ok) { toast(data.error || "Could not load items.", true); return; }
     state.total = data.total;
-    renderTable(data.items);
-    renderStatusOptions(data.statuses);
+    renderTable(data.items || []);
+    renderStatusOptions(data.statuses || []);
     const preview = $("nc-next-number");
     if (preview) preview.textContent = data.next_number_preview || "—";
     updatePager();
@@ -84,9 +105,9 @@
         <td class="py-2 pr-3">${escapeHtml(it.status)}</td>
         <td class="py-2 pr-3">${escapeHtml(it.filed_by_username)}</td>
         <td class="py-2 pr-3 whitespace-nowrap">
-          <button class="text-steel hover:text-accent transition-colors mr-2" data-action="label" data-id="${it.id}">Label</button>
-          <button class="text-steel hover:text-accent transition-colors mr-2" data-action="edit" data-id="${it.id}">Edit</button>
-          <button class="text-steel/50 hover:text-accent transition-colors" data-action="download-label" data-id="${it.id}" title="Download .zpl (fallback if Browser Print isn't reachable)">⭳</button>
+          <button type="button" class="text-steel hover:text-accent transition-colors mr-2" data-action="label" data-id="${escapeHtml(it.id)}">Label</button>
+          <button type="button" class="text-steel hover:text-accent transition-colors mr-2" data-action="edit" data-id="${escapeHtml(it.id)}">Edit</button>
+          <button type="button" class="text-steel/50 hover:text-accent transition-colors" data-action="download-label" data-id="${escapeHtml(it.id)}" title="Download .zpl (fallback if Browser Print isn't reachable)" aria-label="Download label file for ${escapeHtml(it.number)}">⭳</button>
         </td>
       </tr>
     `).join("");
@@ -136,7 +157,7 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await readJson(res);
         if (!data.ok) {
           errBox.textContent = data.error || "Could not file item.";
           errBox.classList.remove("hidden");
@@ -188,7 +209,7 @@
       const params = new URLSearchParams();
       if (state.q) params.set("q", state.q);
       if (state.status) params.set("status", state.status);
-      window.location.href = `/nonconforming/api/export?${params}`;
+      navigate(`/nonconforming/api/export?${params}`);
     });
   }
 
@@ -276,8 +297,8 @@
   async function printLabel(id, btn) {
     if (btn) btn.disabled = true;
     try {
-      const res = await fetch(`/nonconforming/api/items/${id}/label`);
-      const data = await res.json();
+      const res = await fetch(`/nonconforming/api/items/${encodeURIComponent(id)}/label`);
+      const data = await readJson(res);
       if (!data.ok) throw new Error(data.error || "could not build label");
       const device = await getDefaultZebraPrinter();
       await sendZpl(device, data.zpl);
@@ -290,29 +311,34 @@
   }
 
   function downloadLabel(id) {
-    window.location.href = `/nonconforming/api/items/${id}/label?download=1`;
+    navigate(`/nonconforming/api/items/${encodeURIComponent(id)}/label?download=1`);
   }
 
   // ── Edit modal ───────────────────────────────────────────────────────
   async function openEditModal(id) {
-    const res = await fetch(`/nonconforming/api/items/${id}`);
-    const data = await res.json();
-    if (!data.ok) return;
+    let data;
+    try {
+      data = await readJson(await fetch(`/nonconforming/api/items/${encodeURIComponent(id)}`));
+    } catch (e) {
+      data = { ok: false, error: "Network error — could not open the record." };
+    }
+    if (!data.ok) { toast(data.error || "Could not open the record.", true); return; }
     state.editingId = id;
     const item = data.item;
     $("nc-edit-number").textContent = item.number;
     const form = $("nc-edit-form");
     form.innerHTML = Object.keys(FIELD_LABELS).map(key => `
       <div class="${key === "address" || key === "addtl_info" ? "md:col-span-2" : ""}">
-        <label class="block text-xs text-steel mb-1.5 uppercase tracking-wide font-mono">
+        <label class="block text-xs text-steel mb-1.5 uppercase tracking-wide font-mono" for="nc-edit-${key}">
           ${FIELD_LABELS[key]}${REQUIRED.includes(key) ? ' <span class="text-warn">*</span>' : ""}
         </label>
-        <input type="text" name="${key}" value="${escapeHtml(item[key])}"
+        <input type="text" id="nc-edit-${key}" name="${key}" value="${escapeHtml(item[key])}"${REQUIRED.includes(key) ? " required" : ""}
           class="w-full bg-ink-100 border border-steel/50 rounded-lg px-3 py-2.5 text-sm text-slate-200 transition-all" />
       </div>
     `).join("");
     $("nc-edit-error").classList.add("hidden");
     $("nc-edit-modal").classList.remove("hidden");
+    form.querySelector("input")?.focus();
   }
 
   function closeEditModal() {
@@ -325,21 +351,26 @@
     if (closeBtn) closeBtn.addEventListener("click", closeEditModal);
     const modal = $("nc-edit-modal");
     if (modal) modal.addEventListener("click", e => { if (e.target === modal) closeEditModal(); });
+    document.addEventListener("keydown", e => {
+      if (e.key === "Escape" && modal && !modal.classList.contains("hidden")) closeEditModal();
+    });
 
     const saveBtn = $("nc-edit-save");
     if (saveBtn) saveBtn.addEventListener("click", async () => {
+      if (saveBtn.disabled) return;
       const form = $("nc-edit-form");
       const fd = new FormData(form);
       const payload = {};
       for (const [k, v] of fd.entries()) payload[k] = v;
       const errBox = $("nc-edit-error");
+      saveBtn.disabled = true;
       try {
-        const res = await fetch(`/nonconforming/api/items/${state.editingId}`, {
+        const res = await fetch(`/nonconforming/api/items/${encodeURIComponent(state.editingId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await readJson(res);
         if (!data.ok) {
           errBox.textContent = data.error || "Could not save.";
           errBox.classList.remove("hidden");
@@ -350,6 +381,8 @@
       } catch (e) {
         errBox.textContent = "Network error — changes were not saved.";
         errBox.classList.remove("hidden");
+      } finally {
+        saveBtn.disabled = false;
       }
     });
 
@@ -357,7 +390,29 @@
     if (deleteBtn) deleteBtn.addEventListener("click", async () => {
       if (!state.editingId) return;
       if (!confirm("Delete this record? This can't be undone.")) return;
-      await fetch(`/nonconforming/api/items/${state.editingId}`, { method: "DELETE" });
+      const errBox = $("nc-edit-error");
+      deleteBtn.disabled = true;
+      let data;
+      try {
+        const res = await fetch(`/nonconforming/api/items/${encodeURIComponent(state.editingId)}`, { method: "DELETE" });
+        let body = null;
+        try { body = await res.json(); } catch (e) { body = null; }
+        // A delete may legitimately return no body, so any direct 2xx counts as
+        // success unless the body says otherwise. A redirect means the session
+        // expired and the request was answered by the sign-in page.
+        data = (res.ok && !res.redirected && !(body && body.ok === false))
+          ? { ok: true }
+          : { ok: false, error: (body && body.error) || `Request failed (HTTP ${res.status})` };
+      } catch (e) {
+        data = { ok: false, error: "Network error — the record was not deleted." };
+      } finally {
+        deleteBtn.disabled = false;
+      }
+      if (!data.ok) {
+        errBox.textContent = data.error || "Could not delete the record.";
+        errBox.classList.remove("hidden");
+        return;
+      }
       closeEditModal();
       loadItems();
     });

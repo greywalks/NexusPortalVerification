@@ -34,9 +34,15 @@ component output=false {
         var w=row(q,1);w.topics=topics(arguments.id);w.sessions=sessions(arguments.id);var p=weekProgress(arguments.id);w.attended=p.attended;w.signed=p.signed;return w;
     }
     numeric function createWeek(string title="",string startDate="",string notes=""){
-        var n=queryExecute("SELECT COALESCE(MAX(week_number),0)+1 n FROM training_weeks",{}, {datasource:variables.datasource}).n[1];var title=len(trim(arguments.title))?trim(arguments.title):"Week "&n;
-        queryExecute("INSERT INTO training_weeks(week_number,title,start_date,notes) VALUES(:n,:t,:d,:notes)",{n:n,t:title,d:{value:arguments.startDate,null:!len(arguments.startDate)},notes:arguments.notes},{datasource:variables.datasource});
-        return newestId("training_weeks");
+        // week_number is allocated as MAX+1, so allocation and insert are serialized
+        // (this application runs as a single instance against the H2 file store).
+        var newId=0;
+        lock name="ussi-training-week-number" type="exclusive" timeout="10"{
+            var n=queryExecute("SELECT COALESCE(MAX(week_number),0)+1 n FROM training_weeks",{}, {datasource:variables.datasource}).n[1];var title=len(trim(arguments.title))?trim(arguments.title):"Week "&n;
+            var r={};queryExecute("INSERT INTO training_weeks(week_number,title,start_date,notes) VALUES(:n,:t,:d,:notes)",{n:n,t:title,d:{value:arguments.startDate,null:!len(arguments.startDate)},notes:arguments.notes},{datasource:variables.datasource,result:"r"});
+            newId=insertedId(r,"training_weeks");
+        }
+        return newId;
     }
     void function updateWeek(required numeric id,required string title,string startDate="",string notes=""){queryExecute("UPDATE training_weeks SET title=:t,start_date=:d,notes=:n WHERE id=:id",{t:trim(arguments.title),d:{value:arguments.startDate,null:!len(arguments.startDate)},n:arguments.notes,id:arguments.id},{datasource:variables.datasource});}
     void function deleteWeek(required numeric id){for(var s in sessions(arguments.id))removeSignoff(s.id);queryExecute("DELETE FROM training_weeks WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});}
@@ -45,24 +51,24 @@ component output=false {
     struct function topic(required numeric id){var q=queryExecute("SELECT * FROM training_topics WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});return q.recordCount?row(q,1):{};}
     numeric function createTopic(required numeric weekId,string title="",string lessonPlan="",string keyPoints=""){
         var sort=queryExecute("SELECT COALESCE(MAX(sort_order),0)+1 n FROM training_topics WHERE week_id=:id",{id:arguments.weekId},{datasource:variables.datasource}).n[1];var title=len(trim(arguments.title))?trim(arguments.title):"Untitled topic";
-        queryExecute("INSERT INTO training_topics(week_id,title,lesson_plan,key_points,sort_order) VALUES(:w,:t,:l,:k,:s)",{w:arguments.weekId,t:title,l:arguments.lessonPlan,k:arguments.keyPoints,s:sort},{datasource:variables.datasource});return newestId("training_topics");
+        var r={};queryExecute("INSERT INTO training_topics(week_id,title,lesson_plan,key_points,sort_order) VALUES(:w,:t,:l,:k,:s)",{w:arguments.weekId,t:title,l:arguments.lessonPlan,k:arguments.keyPoints,s:sort},{datasource:variables.datasource,result:"r"});return insertedId(r,"training_topics");
     }
     void function updateTopic(required numeric id,string title="",string lessonPlan="",string keyPoints=""){queryExecute("UPDATE training_topics SET title=:t,lesson_plan=:l,key_points=:k WHERE id=:id",{t:len(trim(arguments.title))?trim(arguments.title):"Untitled topic",l:arguments.lessonPlan,k:arguments.keyPoints,id:arguments.id},{datasource:variables.datasource});}
     void function deleteTopic(required numeric id){queryExecute("DELETE FROM training_topics WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});}
     array function videos(required numeric topicId){return toArray(queryExecute("SELECT * FROM training_videos WHERE topic_id=:id ORDER BY id",{id:arguments.topicId},{datasource:variables.datasource}));}
-    numeric function addVideo(required numeric topicId,string title="",required string url){var cleanUrl=trim(arguments.url);if(!reFindNoCase("^https?://",cleanUrl))throw(type="Logicore.Validation",message="Video links must begin with http:// or https://.");queryExecute("INSERT INTO training_videos(topic_id,title,url) VALUES(:id,:t,:u)",{id:arguments.topicId,t:len(trim(arguments.title))?trim(arguments.title):cleanUrl,u:cleanUrl},{datasource:variables.datasource});return newestId("training_videos");}
+    numeric function addVideo(required numeric topicId,string title="",required string url){var cleanUrl=trim(arguments.url);if(!reFindNoCase("^https?://",cleanUrl))throw(type="Logicore.Validation",message="Video links must begin with http:// or https://.");var r={};queryExecute("INSERT INTO training_videos(topic_id,title,url) VALUES(:id,:t,:u)",{id:arguments.topicId,t:len(trim(arguments.title))?trim(arguments.title):cleanUrl,u:cleanUrl},{datasource:variables.datasource,result:"r"});return insertedId(r,"training_videos");}
     struct function video(required numeric id){var q=queryExecute("SELECT v.*,t.week_id FROM training_videos v JOIN training_topics t ON t.id=v.topic_id WHERE v.id=:id",{id:arguments.id},{datasource:variables.datasource});return q.recordCount?row(q,1):{};}
     void function deleteVideo(required numeric id){queryExecute("DELETE FROM training_videos WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});}
 
     array function people(){return toArray(queryExecute("SELECT * FROM training_people ORDER BY name",{}, {datasource:variables.datasource}));}
-    numeric function addPerson(required string name,string email=""){if(!len(trim(arguments.name)))return 0;queryExecute("INSERT INTO training_people(name,email) VALUES(:n,:e)",{n:trim(arguments.name),e:trim(arguments.email)},{datasource:variables.datasource});var id=newestId("training_people");for(var s in allSessions())seedAttendance(s.id);return id;}
+    numeric function addPerson(required string name,string email=""){if(!len(trim(arguments.name)))return 0;var r={};queryExecute("INSERT INTO training_people(name,email) VALUES(:n,:e)",{n:trim(arguments.name),e:trim(arguments.email)},{datasource:variables.datasource,result:"r"});var id=insertedId(r,"training_people");for(var s in allSessions())seedAttendance(s.id);return id;}
     void function updatePerson(required numeric id,required string name,string email=""){queryExecute("UPDATE training_people SET name=:n,email=:e WHERE id=:id",{n:arguments.name,e:arguments.email,id:arguments.id},{datasource:variables.datasource});}
     void function deletePerson(required numeric id){queryExecute("DELETE FROM training_people WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});}
 
     array function sessions(required numeric weekId){var q=queryExecute("SELECT s.*, (SELECT COUNT(*) FROM training_attendance a WHERE a.session_id=s.id AND a.attended=1) attended_count, (SELECT COUNT(*) FROM training_attendance a WHERE a.session_id=s.id AND a.attended=1 AND a.signature IS NOT NULL) signed_count FROM training_sessions s WHERE s.week_id=:id ORDER BY s.session_date,s.id",{id:arguments.weekId},{datasource:variables.datasource});var a=toArray(q);for(var s in a)s.upload=signoffUpload(s.id);return a;}
     array function allSessions(){return toArray(queryExecute("SELECT * FROM training_sessions ORDER BY week_id,session_date,id",{}, {datasource:variables.datasource}));}
     struct function session(required numeric id){var q=queryExecute("SELECT s.*,w.week_number,w.title week_title,w.start_date week_start_date FROM training_sessions s JOIN training_weeks w ON w.id=s.week_id WHERE s.id=:id",{id:arguments.id},{datasource:variables.datasource});if(!q.recordCount)return{};var s=row(q,1);s.attendance=attendance(arguments.id);s.upload=signoffUpload(arguments.id);return s;}
-    numeric function createSession(required numeric weekId,string trainerName="",string sessionDate="",string location=""){queryExecute("INSERT INTO training_sessions(week_id,trainer_name,session_date,location) VALUES(:w,:t,:d,:l)",{w:arguments.weekId,t:len(trim(arguments.trainerName))?trim(arguments.trainerName):"Unassigned",d:{value:arguments.sessionDate,null:!len(arguments.sessionDate)},l:{value:trim(arguments.location),null:!len(trim(arguments.location))}},{datasource:variables.datasource});var id=newestId("training_sessions");seedAttendance(id);return id;}
+    numeric function createSession(required numeric weekId,string trainerName="",string sessionDate="",string location=""){var r={};queryExecute("INSERT INTO training_sessions(week_id,trainer_name,session_date,location) VALUES(:w,:t,:d,:l)",{w:arguments.weekId,t:len(trim(arguments.trainerName))?trim(arguments.trainerName):"Unassigned",d:{value:arguments.sessionDate,null:!len(arguments.sessionDate)},l:{value:trim(arguments.location),null:!len(trim(arguments.location))}},{datasource:variables.datasource,result:"r"});var id=insertedId(r,"training_sessions");seedAttendance(id);return id;}
     void function updateSession(required numeric id,string trainerName="",string sessionDate="",string location=""){queryExecute("UPDATE training_sessions SET trainer_name=:t,session_date=:d,location=:l WHERE id=:id",{t:len(trim(arguments.trainerName))?trim(arguments.trainerName):"Unassigned",d:{value:arguments.sessionDate,null:!len(arguments.sessionDate)},l:{value:trim(arguments.location),null:!len(trim(arguments.location))},id:arguments.id},{datasource:variables.datasource});}
     void function deleteSession(required numeric id){removeSignoff(arguments.id);queryExecute("DELETE FROM training_sessions WHERE id=:id",{id:arguments.id},{datasource:variables.datasource});}
 
@@ -130,6 +136,9 @@ component output=false {
     void function saveTheme(required struct values){for(var k in arguments.values){if(k=="FIELDNAMES"||!len(trim(arguments.values[k]&"")))continue;queryExecute("MERGE INTO training_theme(key_name,value_text) KEY(key_name) VALUES(:k,:v)",{k:k,v:trim(arguments.values[k]&"")},{datasource:variables.datasource});}}
     void function resetTheme(){queryExecute("DELETE FROM training_theme",{}, {datasource:variables.datasource});}
 
+    // Prefer the key the driver reports for this insert; MAX(id) is only a last
+    // resort because a concurrent insert can hand back another user's record.
+    private numeric function insertedId(required struct result,required string tableName){if(structKeyExists(arguments.result,"generatedKey")&&isNumeric(arguments.result.generatedKey))return val(arguments.result.generatedKey);return newestId(arguments.tableName);}
     private numeric function newestId(required string tableName){if(!listFindNoCase("training_weeks,training_topics,training_videos,training_people,training_sessions",arguments.tableName))throw(type="Logicore.Training",message="Invalid table.");var q=queryExecute("SELECT MAX(id) id FROM "&arguments.tableName,{}, {datasource:variables.datasource});return val(q.id[1]);}
     private numeric function scalar(required string sql){var q=queryExecute(arguments.sql,{}, {datasource:variables.datasource});var c=listFirst(q.columnList);return val(q[c][1]);}
     private string function safeName(required string s){var x=reReplace(arguments.s,"[^A-Za-z0-9._ -]","_","all");return len(trim(x))?trim(x):"file";}

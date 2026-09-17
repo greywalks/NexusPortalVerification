@@ -10,3 +10,7 @@ config/*_prices.json
 config/philips_reference.json
 config/amc_dimensions.json
 lib/h2-2.1.214.jar
+node_modules/
+package.json
+package-lock.json
+tests/frontend/node_modules/

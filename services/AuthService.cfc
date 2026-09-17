@@ -18,9 +18,16 @@ component output=false {
         var bootstrapUsername = environmentValue("USSI_NEXUS_BOOTSTRAP_USERNAME");
         if (!len(bootstrapUsername)) bootstrapUsername = "matt.shaw";
         var configuredPassword = environmentValue("USSI_NEXUS_BOOTSTRAP_PASSWORD");
+        var isProduction = lCase(environmentValue("USSI_NEXUS_ENV")) == "production";
+        var q = queryExecute("SELECT COUNT(*) AS c FROM users", {}, {datasource:variables.datasource});
+
+        // A publicly documented default password must never be installed on a
+        // production database. Refuse to start rather than create a known login.
+        if (isProduction && !len(configuredPassword) && q.c[1] == 0) {
+            throw(type="Logicore.Bootstrap", message="USSI_NEXUS_BOOTSTRAP_PASSWORD must be set when USSI_NEXUS_ENV=production and the user database is empty.");
+        }
         var bootstrapHash = len(configuredPassword) ? makePassword(configuredPassword) : defaultBootstrapPasswordHash();
         var bootstrapInitials = compareNoCase(bootstrapUsername, "matt.shaw") == 0 ? "MS" : "CI";
-        var q = queryExecute("SELECT COUNT(*) AS c FROM users", {}, {datasource:variables.datasource});
 
         if (q.c[1] == 0) {
             queryExecute(
@@ -33,7 +40,7 @@ component output=false {
 
         // Upgrade only the untouched one-user legacy development database.
         // Any database with additional users or a changed admin password is left alone.
-        if (q.c[1] == 1 && !len(configuredPassword)) {
+        if (q.c[1] == 1 && !len(configuredPassword) && !isProduction) {
             var legacy = queryExecute("SELECT id,username,password_hash FROM users", {}, {datasource:variables.datasource});
             if (legacy.recordCount == 1 && compareNoCase(legacy.username[1], "admin") == 0 && verifyPassword("admin", legacy.password_hash[1])) {
                 queryExecute(
@@ -44,13 +51,38 @@ component output=false {
             }
         }
 
-        // The designated default account is the portal owner and must retain
-        // the highest administration level even in an existing database.
+        // The configured bootstrap account is the portal owner and retains the
+        // highest administration level even in an existing database. This used
+        // to target a hard-coded username regardless of configuration, which
+        // meant any later account created with that name became a superadmin at
+        // the next restart.
         queryExecute(
             "UPDATE users SET is_superadmin=1 WHERE LOWER(username)=LOWER(:u)",
-            {u:"matt.shaw"},
+            {u:bootstrapUsername},
             {datasource:variables.datasource}
         );
+    }
+
+    // Username policy shared by administrative creation. Usernames are shown in
+    // rendered pages, used as NonConforming filer names, and compared
+    // case-insensitively, so keep them short and to a simple character set.
+    string function validateUsername(required string username) {
+        var u = trim(arguments.username);
+        if (!len(u)) return "Username is required.";
+        if (len(u) > 120) return "Username must be 120 characters or fewer.";
+        if (!reFind("^[A-Za-z0-9][A-Za-z0-9._@-]*$", u)) return "Username may contain letters, digits, periods, underscores, hyphens and @ only.";
+        return "";
+    }
+
+    string function validatePassword(required string password) {
+        if (len(arguments.password) < 12) return "Password must be at least 12 characters.";
+        if (len(arguments.password) > 256) return "Password must be 256 characters or fewer.";
+        return "";
+    }
+
+    boolean function usernameExists(required string username) {
+        var q = queryExecute("SELECT id FROM users WHERE LOWER(username)=LOWER(:u)", {u:{value:trim(arguments.username), cfsqltype:"cf_sql_varchar"}}, {datasource:variables.datasource});
+        return q.recordCount > 0;
     }
 
     struct function sections() {
@@ -82,12 +114,32 @@ component output=false {
         return hash(arguments.password & ":" & arguments.salt, "SHA-256", "UTF-8", 120000);
     }
 
+    // v3: PBKDF2-HMAC-SHA256, 600,000 iterations, 32-byte key, random 16-byte salt.
+    // Stored as "v3$<iterations>$<base64 salt>$<base64 key>". Older v1/v2 iterated
+    // SHA-256 hashes still verify and are rewritten on the next successful login.
+    private numeric function pbkdf2Iterations() { return 600000; }
+    private string function pbkdf2Hash(required string password, required string salt, required numeric iterations) {
+        return generatePBKDFKey("PBKDF2WithHmacSHA256", arguments.password, arguments.salt, arguments.iterations, 256);
+    }
     private string function makePassword(required string password) {
-        var salt = lCase(replace(createUUID(), "-", "", "all"));
-        return salt & "$" & passwordHash(arguments.password, salt);
+        var saltBytes = createObject("java", "java.security.SecureRandom").init().generateSeed(javaCast("int", 16));
+        var salt = binaryEncode(saltBytes, "base64");
+        var iterations = pbkdf2Iterations();
+        return "v3$" & iterations & "$" & salt & "$" & pbkdf2Hash(arguments.password, salt, iterations);
+    }
+
+    boolean function passwordNeedsRehash(required string stored) {
+        if (left(arguments.stored, 3) != "v3$") return true;
+        var parts = listToArray(arguments.stored, "$", true);
+        return arrayLen(parts) != 4 || val(parts[2]) < pbkdf2Iterations();
     }
 
     boolean function verifyPassword(required string password, required string stored) {
+        if (left(arguments.stored, 3) == "v3$") {
+            var parts = listToArray(arguments.stored, "$", true);
+            if (arrayLen(parts) != 4 || val(parts[2]) < 1) return false;
+            return compare(parts[4], pbkdf2Hash(arguments.password, parts[3], val(parts[2]))) == 0;
+        }
         if (left(arguments.stored, 3) == "v2$") {
             var modern = listToArray(arguments.stored, "$", true);
             if (arrayLen(modern) != 3) return false;
@@ -100,6 +152,11 @@ component output=false {
     }
 
     numeric function createUser(required string username, required string password, boolean isSuperadmin=false, string initials="") {
+        var problem = validateUsername(arguments.username);
+        if (!len(problem)) problem = validatePassword(arguments.password);
+        if (!len(problem) && len(trim(arguments.initials)) > 12) problem = "Initials must be 12 characters or fewer.";
+        if (!len(problem) && usernameExists(arguments.username)) problem = "That username is already taken.";
+        if (len(problem)) throw(type="Logicore.Validation", message=problem);
         queryExecute(
             "INSERT INTO users(username,password_hash,is_superadmin,initials) VALUES(:u,:p,:s,:i)",
             {
@@ -117,6 +174,13 @@ component output=false {
     struct function authenticate(required string username, required string password) {
         var q = queryExecute("SELECT * FROM users WHERE LOWER(username)=LOWER(:u)", {u:{value:trim(arguments.username), cfsqltype:"cf_sql_varchar"}}, {datasource:variables.datasource});
         if (q.recordCount != 1 || !verifyPassword(arguments.password, q.password_hash[1])) return {};
+        if (passwordNeedsRehash(q.password_hash[1])) {
+            try {
+                queryExecute("UPDATE users SET password_hash=:p WHERE id=:id", {p:makePassword(arguments.password), id:{value:q.id[1], cfsqltype:"cf_sql_bigint"}}, {datasource:variables.datasource});
+            } catch (any e) {
+                writeLog(type="warning", file="ussi_nexus", text="Password rehash skipped for user " & q.id[1] & ": " & (e.message ?: ""));
+            }
+        }
         return rowToStruct(q, 1);
     }
 

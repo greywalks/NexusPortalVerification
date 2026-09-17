@@ -28,6 +28,8 @@ done
 
 APP_ROOT="$(cd "$APP_ROOT" && pwd)"
 [[ -f "$APP_ROOT/Application.cfc" && -f "$APP_ROOT/index.cfm" ]] || { echo "Application.cfc and index.cfm were not found in $APP_ROOT" >&2; exit 1; }
+[[ -d "$APP_ROOT/config" ]] || { echo "$APP_ROOT/config is missing; the checkout is incomplete." >&2; exit 1; }
+[[ -f "$APP_ROOT/views/portal.html" ]] || { echo "$APP_ROOT/views/portal.html is missing; the portal shell cannot render." >&2; exit 1; }
 id "$SERVICE_USER" >/dev/null 2>&1 || { echo "Service user '$SERVICE_USER' does not exist." >&2; exit 1; }
 getent group "$SERVICE_GROUP" >/dev/null 2>&1 || { echo "Service group '$SERVICE_GROUP' does not exist." >&2; exit 1; }
 

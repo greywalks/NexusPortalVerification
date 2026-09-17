@@ -25,17 +25,21 @@
         LimitRequestBody 104857600
 
         RewriteEngine On
-        RewriteRule ^(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$) - [R=404,L,NC]
-        RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|[^/]+\.md)$ - [R=404,L,NC]
+        RewriteRule ^(?:\.git|\.github|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy|views|build|node_modules)(?:/|$) - [R=404,L,NC]
+        RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|\.gitignore|\.htaccess|package(?:-lock)?\.json|[^/]+\.md)$ - [R=404,L,NC]
+        RewriteRule ^index\.cfm/tests(?:/|$) - [R=404,L,NC]
         RewriteRule ^(?!index\.cfm(?:/|$)).*\.cf[cm](?:/|$) - [R=404,L,NC]
         # Application routes use explicit /index.cfm/... URLs.
     </Directory>
 
-    <LocationMatch "(?i)^/(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$)">
+    <LocationMatch "(?i)^/(?:\.git|\.github|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy|views|build|node_modules)(?:/|$)">
+        Require all denied
+    </LocationMatch>
+    <LocationMatch "(?i)^/index\.cfm/tests(?:/|$)">
         Require all denied
     </LocationMatch>
 
-    <FilesMatch "(?i)^(?:Application\.cfc|server\.json|\.CFConfig\.json|.*\.md)$">
+    <FilesMatch "(?i)^(?:Application\.cfc|server\.json|\.CFConfig\.json|\.gitignore|\.htaccess|package(?:-lock)?\.json|.*\.md)$">
         Require all denied
     </FilesMatch>
 </VirtualHost>

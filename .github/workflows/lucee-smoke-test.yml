@@ -16,6 +16,9 @@ jobs:
     env:
       USSI_NEXUS_BOOTSTRAP_USERNAME: ci.admin
       USSI_NEXUS_BOOTSTRAP_PASSWORD: ussi-nexus-ci-only
+      # The parity suite replaces reference data and leaves records behind; it
+      # refuses to run unless the target is declared disposable.
+      USSI_NEXUS_TEST_DISPOSABLE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -33,12 +36,15 @@ jobs:
         run: python -m pip install --disable-pip-version-check requests openpyxl
 
       - name: Start Lucee
-        run: |
-          box server start --noOpenBrowser
-          sleep 15
+        run: box server start --noOpenBrowser
 
       - name: Verify health endpoint
-        run: curl --fail-with-body --show-error --retry 3 --retry-delay 2 http://127.0.0.1:5000/index.cfm/healthz
+        run: |
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:5000/index.cfm/healthz -o healthz.json; then cat healthz.json; exit 0; fi
+            sleep 3
+          done
+          echo "Lucee did not become healthy in time" >&2; exit 1
 
       - name: Verify login page
         run: |
@@ -112,3 +118,20 @@ jobs:
       - name: Stop Lucee
         if: always()
         run: box server stop || true
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Syntax-check browser scripts
+        run: for f in static/js/*.js; do node --check "$f"; done
+      - name: Install jsdom
+        run: npm install --no-save --no-audit --no-fund jsdom@24
+      - name: Frontend regression suite (US Eastern)
+        run: TZ=America/New_York node tests/frontend/portal_regression.test.js
+      - name: Frontend regression suite (UTC+12)
+        run: TZ=Pacific/Auckland node tests/frontend/portal_regression.test.js
