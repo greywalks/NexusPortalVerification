@@ -481,6 +481,20 @@ const XSS = '<img src=x onerror="window.__pwned=1">';
     assert(/click Save/.test(d.getElementById('pricing-status').textContent), 'reset not explained');
   });
 
+  await test('F-17 Storage pricing renders from the Lucee response shape (prices nested under "prices")', async () => {
+    const { w, d } = await loadPortal({ routes: {
+      // Exactly what /get_storage_prices returns on Lucee: no top-level part_type_prices/line_prices.
+      'GET /get_storage_prices': json({ ok: true, defaults: { line_prices: { unit_storage: 8 }, part_type_prices: { PSU: 7 } },
+        prices: { line_prices: { unit_storage: 8, pallet_storage: 23.5 }, part_type_prices: { PSU: 7, USB: 4 } } }),
+      'GET /config/serial_rules': json({ rules: [] }),
+    } });
+    w.showPage('config');
+    await tick(10);
+    assert(d.querySelectorAll('[data-type="line"]').length === 2, 'line prices not rendered');
+    assert(d.querySelectorAll('[data-type="part"]').length === 2, 'part prices not rendered');
+    assert(d.querySelector('[data-key="pallet_storage"]').value === '23.5', 'value not shown');
+  });
+
   await test('OK Philips and TCL pricing panels load, validate and save', async () => {
     const { w, d, calls } = await loadPortal({ routes: {
       'GET /get_philips_prices': json({ ok: true, defaults: { warehouse_base: 1910 }, prices: { warehouse_base: 1910, inbound_handling: 6 } }),

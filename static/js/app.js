@@ -1417,8 +1417,11 @@ function showSaveStatus(el, ok, message) {
       const r = await fetch('/get_storage_prices');
       const d = await r.json();
       if (!d.ok) return;
-      _pricingDefaults = d.defaults;
-      _pricingCurrent  = {part_type_prices: {...d.part_type_prices}, line_prices: {...d.line_prices}};
+      // The Lucee API returns the live values under "prices"; the original
+      // Flask API returned them at the top level. Accept both.
+      const live = (d.prices && typeof d.prices === 'object') ? d.prices : d;
+      _pricingDefaults = d.defaults || {part_type_prices: {}, line_prices: {}};
+      _pricingCurrent  = {part_type_prices: {...(live.part_type_prices || {})}, line_prices: {...(live.line_prices || {})}};
       renderPricingForm();
     } catch(e) { console.warn('Pricing load failed', e); }
   }

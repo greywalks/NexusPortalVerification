@@ -39,6 +39,7 @@ IDs prefixed `S` are server side (statically reviewed); `F` are browser side (ru
 | F-08 | Medium | Client navigation threw when the server removed Config for a limited user; the default page could reveal an ungranted client. | Null-safe navigation; default page chosen from permitted entries only. | jsdom suite. |
 | F-09 | Medium | A missing Promethean form aborted script initialization for every later module. | Optional-chained bindings. | jsdom suite. |
 | F-10 | Medium | A failed NonConforming delete closed the record as if deleted; slow searches could overwrite newer results. | Delete checks the response; requests are sequence-guarded. | jsdom suite. |
+| F-17 | Medium | The Storage pricing panel on the Config page never populated on Lucee: the API returns live prices under `prices`, while the script read them from the top level (the old Flask shape). Found during local testing on 17 Sep; the earlier jsdom test mocked both shapes and masked it. | The script accepts both shapes; a regression test uses the exact Lucee response. | jsdom suite (fails on the old script, passes on the fix). |
 | F-14–16 | Low | Legacy tab styling, serial-rule `year_pos` 0 saved as 5, unencoded download filenames. | Fixed. | jsdom suite. |
 
 ## Changes after the initial remediation (feature work, statically reviewed until CI runs)
