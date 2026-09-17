@@ -149,7 +149,8 @@ d,w=done('/stream_philips');assert d['filename']=='PHILIPS_PARITY.xlsx';assert d
 # TCL must consume the JSON payload sent by the unchanged frontend.
 p=book({'Inventory Export':(['Model','Serial Number','Grade','Rack','Bin','Received Date'],[['TV','U1','A','MAIN','X','08-01-2026'],['PART','P1','A','PARTS','X','08-02-2026']])})
 d=upload('/analyze_tcl','inventory',p,{'date_from':'2026-08-01','date_to':'2026-08-31','output_filename':'TCL_PARITY'})
-api('/confirm_tcl',json={'unit_breakdowns':{d['unit_groups'][0]['key']:'1'},'box_breakdowns':{d['part_groups'][0]['key']:'1'}})
+d_tcl_key=d['unit_groups'][0]['key'];d_tcl_box_key=d['part_groups'][0]['key']
+api('/confirm_tcl',json={'unit_breakdowns':{d_tcl_key:'1'},'box_breakdowns':{d_tcl_box_key:'1'}})
 d,w=done('/stream_tcl');assert d['filename']=='TCL_PARITY.xlsx';assert d['subtotal']==78.85,d
 
 print('PASS: JSON casing, portal navigation, dimensions round-trip, AMC/Philips correction recomputation, TCL JSON confirmation and XLSX downloads')
@@ -300,3 +301,63 @@ assert 'role="alert"' in check(s.get(BASE+'/admin/permissions?error=Example+prob
 # Password confirmation is case-sensitive.
 bad_confirm=check(s.post(BASE+'/account/password',data={'current_password':TEST_PASSWORD,'new_password':'Parity-Pass-Case-2026','confirm_password':'parity-pass-case-2026'}),400)
 print('PASS: POST-only reference data, payload validation, Origin rejection, logout method, admin validation feedback')
+
+# Configurable Philips and TCL rates: defaults reproduce the historical totals, and a
+# changed pallet rate flows through the TCL builder without re-analysis.
+tclp=api('/get_tcl_prices');assert tclp['prices']['pallet_rate_small']==75 and tclp['defaults']['box_16_20']==15,tclp
+phg=api('/get_philips_prices');assert phg['prices']['warehouse_base']==1910 and phg['prices']['inbound_handling']==6,phg
+check(s.post(BASE+'/set_tcl_prices',json={'prices':{'pallet_threshold':2.5}}),400)
+check(s.post(BASE+'/set_philips_prices',json={'prices':{'warehouse_base':-1}}),400)
+api('/set_tcl_prices',json={'prices':{'pallet_rate_small':80}})
+api('/confirm_tcl',json={'unit_breakdowns':{d_tcl_key:'1'},'box_breakdowns':{d_tcl_box_key:'1'}})
+d,w=done('/stream_tcl');assert d['subtotal']==83.85,d;assert w['Line Items']['G2'].value==80,w['Line Items']['G2'].value
+api('/set_tcl_prices',json={'reset':True});assert api('/get_tcl_prices')['prices']['pallet_rate_small']==75
+
+# Workshop corrections: an unusable value is rejected up front and a reviewed exclusion
+# is reported in the Excluded Serials tab instead of vanishing.
+badraw=book({'Repair Data':(['Date Integer','Actual Model','Actual Serial','Derive Size','Result','Category'],[
+ ['08-05-2026','AP9-A75-NA-R','9A75XK101','75','Mainboard replaced','Refurbished'],
+ ['08-06-2026','UNKNOWN-MODEL','ZZ99UNRESOLVED','zz','Mainboard replaced','Refurbished']])})
+d=api('/sanitize',files={'raw_file':('raw.xlsx',badraw),'prev_invoiced':('master.xlsx',master),'shipping':('ship.csv',ship)},data={'date_from':'2026-08-01','date_to':'2026-08-31','invoice_date':'2026-09-01','completed_date':'2026-08-31','customer':'Promethean','call_id':'C-CORR'})
+assert d['issue_count']==1 and d['issues'][0]['issue_type']=='unresolved_size',d
+bad_idx=str(d['issues'][0]['row_index'])
+r=s.post(BASE+'/generate',data={'output_filename':'CORR_BAD','corrections':json.dumps({bad_idx:{'field':'Derive Size','value':'99'}})});check(r,400);assert 'could not be applied' in r.json()['error'],r.text
+api('/generate',data={'output_filename':'CORR_EXCLUDED','corrections':json.dumps({bad_idx:{'field':'Derive Size','value':'EXCLUDE'}})})
+d,w=done('/stream');assert d['excluded_count']==1 and d['depot_count']==1,d
+excluded_rows=[row for row in w['Excluded Serials'].iter_rows(min_row=2,values_only=True) if any(row)]
+assert any('ZZ99UNRESOLVED' in str(row) and 'Excluded by user' in str(row) for row in excluded_rows),excluded_rows
+print('PASS: configurable Philips/TCL rates and Workshop correction validation')
+
+# Audit log: actions taken above are visible to the superadmin and exportable.
+audit_page=check(s.get(BASE+'/admin/audit',params={'action':'invoice.tcl_built'})).text
+assert 'invoice.tcl_built' in audit_page and 'TCL_PARITY.xlsx' in audit_page,audit_page[-2000:]
+audit_csv=check(s.get(BASE+'/admin/audit/export.csv',params={'action':'config.tcl_prices'})).text
+assert audit_csv.startswith('"Occurred","Actor"') and 'config.tcl_prices' in audit_csv
+assert 'auth.login' in check(s.get(BASE+'/admin/audit',params={'actor':TEST_USERNAME})).text
+check(limited_audit_probe:=requests.Session().get(BASE+'/admin/audit',allow_redirects=False),302)
+
+# Integration API: keys are created once, scoped, hashed and revocable.
+r=s.post(BASE+'/admin/api-keys/new',data={'name':'parity-sync','scopes':'inventory:read,inventory:write,invoices:read,config:read'},allow_redirects=True);check(r)
+key_match=re.search(r'nxk_[a-f0-9]{8}_[a-f0-9]{48}',r.text);assert key_match,r.text[-1500:];api_key=key_match.group(0)
+assert api_key not in check(s.get(BASE+'/admin/api-keys')).text,'key shown twice'
+anon_api=requests.Session()
+assert check(anon_api.get(BASE+'/api/v1/health')).json()['api']=='v1'
+check(anon_api.get(BASE+'/api/v1/invoices/prices'),401)
+check(anon_api.get(BASE+'/api/v1/invoices/prices',headers={'Authorization':'Bearer nxk_deadbeef_'+'0'*48}),401)
+H={'Authorization':'Bearer '+api_key}
+prices=check(anon_api.get(BASE+'/api/v1/invoices/prices',headers=H)).json();assert prices['ok'] and prices['prices']['tcl']['pallet_rate_small']==75,prices
+outs=check(anon_api.get(BASE+'/api/v1/invoices/outputs',headers=H)).json();assert any(o['filename']=='TCL_PARITY.xlsx' for o in outs['outputs']),outs
+dl=check(anon_api.get(BASE+'/api/v1/invoices/outputs/TCL_PARITY.xlsx',headers=H));assert dl.content[:2]==b'PK'
+ser=check(anon_api.get(BASE+'/api/v1/inventory/serials/'+serial,headers=H)).json();assert ser['serial']['serial_number']==serial,ser
+check(anon_api.get(BASE+'/api/v1/inventory/serials/NOPE-'+serial,headers=H),404)
+api_serial='API'+uuid.uuid4().hex[:8]
+ingest={'kind':'shipping','source':'parity-db','rows':[{'Ticket Number':'M88888888','Shipped Date':'08-09-2026','Model':'AP9-A75-NA-R','Serial Number':api_serial,'Tracking Number':'00987654321'}]}
+r=anon_api.post(BASE+'/api/v1/inventory/events',json=ingest,headers=H);check(r,201);assert r.json()['result']['events']>=1,r.text
+r=anon_api.post(BASE+'/api/v1/inventory/events',json=ingest,headers=H);check(r,200);assert r.json()['result']['duplicate_payload'] is True
+assert check(anon_api.get(BASE+'/api/v1/inventory/serials/'+api_serial,headers=H)).json()['serial']['serial_number']==api_serial
+r=anon_api.post(BASE+'/api/v1/inventory/events',json={'kind':'bogus','rows':[{}]},headers=H);check(r,400);assert r.json()['error']['code']=='invalid_body'
+r=anon_api.post(BASE+'/api/v1/inventory/events',data='{nope',headers=dict(H,**{'Content-Type':'application/json'}));check(r,400)
+ev=check(anon_api.get(BASE+'/api/v1/audit/events',params={'action':'inventory.api_ingest'},headers=H)).json();assert ev['total']>=1 and ev['events'][0]['actor_kind']=='api',ev
+keys_page=check(s.get(BASE+'/admin/api-keys')).text;kid=re.search(r'/admin/api-keys/(\d+)/revoke',keys_page).group(1)
+postform(f'/admin/api-keys/{kid}/revoke',{});check(anon_api.get(BASE+'/api/v1/invoices/prices',headers=H),401)
+print('PASS: audit log pages/export and integration API keys, reads, ingest and revocation')

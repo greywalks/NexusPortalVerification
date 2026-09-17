@@ -42,6 +42,8 @@ USSI_NEXUS_BOOTSTRAP_PASSWORD=<one-time strong bootstrap password>
 LUCEE_ADMIN_PASSWORD=<strong administrative password>
 ```
 
+Single sign-on with Microsoft Entra ID and the integration API are documented in `docs/SSO.md` and `docs/API.md`; both are optional and inert until configured or a key is created.
+
 Optionally set `USSI_NEXUS_RUNTIME_ROOT` to an absolute persistent directory. When set, `data/`, `uploads/`, and `outputs/` are created beneath that directory instead of the code checkout. Create that directory first and grant the Lucee service identity read/write access. This is recommended when releases are deployed into versioned or replaceable directories.
 
 `USSI_NEXUS_ENV=production` enables Secure session cookies and HSTS, and makes `USSI_NEXUS_BOOTSTRAP_PASSWORD` mandatory when the user database is empty: the application refuses to start rather than create the first administrator with a built-in default password. Use the bootstrap password only for an empty database, then change it through the portal. Existing databases retain their users; password hashes are upgraded to PBKDF2 transparently on each user's next sign-in. The bootstrap username is also the account that is always kept as a superadmin.

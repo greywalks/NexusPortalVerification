@@ -16,12 +16,14 @@ component output=false {
         ]);
     }
 
-    void function philips(required string path,required struct a,required string title,required struct totals){
+    void function philips(required string path,required struct a,required string title,required struct totals,struct prices={}){
         var received=mapRows(a.received,["Model","Serial","Column1","Warehouse","Date","RMA","Price"],["Model","Serial","Grade","Warehouse","Date","RMA",6]);
         var shipped=mapRows(a.shipping,["Date","Type","Departure RMA","Ship to Name","Tracking","Carrier","Model","Price"],["Date","Stock Level (Primary)","Departure RMA","Ship to Name","Departure Tracking","Carrier","Model",6]);
         var repairs=mapRows(a.repairs,["Repair Date","Receive Date","Model","Serial","RMA","Repaired/Harvested","Repaired Y/N","Diagnostics","Parts Used","Price"],["Repair Date","Received Date","Model","Serial","RMA","Status","","Diagnostics","Parts Used","Price"]);
         for(var r in repairs)r["Repaired Y/N"]=r["Repaired/Harvested"]=="Repaired"?"Yes":"No";
         var cells={A5:title,D8:1,D9:nearest50(a.demo_additional_sqft),D12:nearest50(a.service_additional_sqft),D19:nearest50(a.parts_sqft_manual)};
+        // Unit prices live in the layout; overwrite them with the configured rates so the sheet's own formulas agree with the billed total.
+        if(structCount(arguments.prices)){cells.C8=arguments.prices.warehouse_base;cells.C9=arguments.prices.demo_addl_sqft;cells.C12=arguments.prices.service_addl_sqft;cells.C15=arguments.prices.inbound_handling;cells.C16=arguments.prices.outbound_handling;cells.C19=arguments.prices.parts_addl_sqft;}
         cells.D15=f("COUNTA(Receieved!A2:A100000)",a.inbound_count);cells.D16=f("COUNTA(Shipping!G2:G100000)",a.outbound_count);
         cells.D22=f('COUNTIFS(Repairs!F:F,"Repaired")',a.repair_count);cells.E22=f('SUMIFS(Repairs!J:J,Repairs!F:F,"Repaired")',a.repair_total);
         cells.D23=f('COUNTIFS(Repairs!F:F,"Harvested")',a.harvest_count);cells.E23=f('SUMIFS(Repairs!J:J,Repairs!F:F,"Harvested")',a.harvest_total);
@@ -67,14 +69,15 @@ component output=false {
         ]);
     }
 
-    void function tcl(required string path,required struct a,required struct breakdowns,required array lines,required numeric palletRate,required struct totals){
+    void function tcl(required string path,required struct a,required struct breakdowns,required array lines,required numeric palletRate,required struct totals,struct tierRates={}){
+        var rates=arguments.tierRates;var boxRate=function(n){var label=n==1?"Serialized In Fee (1 part)":n<=5?"2-5 Parts in Box":n<=10?"6-10 Parts in Box":n<=15?"11-15 Parts in Box":"16-20 Parts in Box";if(structKeyExists(rates,label))return rates[label];return n<=5?3.85:n<=10?7.7:n<=15?11.55:15;};
         var meta=a._meta?:{};var count=arrayLen(lines);var cells={H3:meta.invoice_number?:"",G3:dateValue(meta.invoice_date?:dateFormat(now(),"yyyy-mm-dd")),C12:dateValue(meta.due_date?:""),A12:meta.po_number?:"Contract",B12:meta.terms?:"Net 30",A6:meta.bill_to?:"TTE Technology Inc"&chr(10)&"189 Technology Dr."&chr(10)&"Irvine, CA 92618"};
         cells.F6=meta.ship_to?:cells.A6;cells.A15=meta.period_label?:dateFormat(a.period_end?:now(),"mmm yyyy")&"***";
         for(var i=1;i<=count;i++){var row=15+i;cells["A"&row]=lines[i].description;cells["G"&row]=lines[i].quantity;cells["H"&row]=lines[i].unit_price;cells["I"&row]=f("H"&row&"*G"&row,lines[i].unit_price*lines[i].quantity);}
         var last=max(16,15+count);var tr=last+8;cells["I"&tr]=f("SUM(I16:I"&last&")",totals.subtotal);cells["I"&(tr+1)]=f("I"&tr&"*0.07",totals.tax);cells["I"&(tr+2)]=f("I"&tr&"+I"&(tr+1),totals.total);
         var rows=[];var pallet=0;
         for(var g in a.unit_groups){var idx=1;for(var n in breakdowns.unit[g.key]){pallet++;for(var j=1;j<=n;j++){if(idx>arrayLen(g.rows))break;var r=g.rows[idx++];arrayAppend(rows,{"Line Item":"FGI TV Inventory (in pallet)",Model:v(r,"Model"),Serial:v(r,"Serial Number"),"Quantity in Box":1,"Receive Date":dateValue(v(r,"Received Date")),"Pallet Number":pallet,Charge:j==n?palletRate:0});}}}
-        for(var g in a.part_groups){var idx=1;for(var n in breakdowns.box[g.key]){var label=n==1?"Serialized In Fee (1 part)":n<=5?"2-5 Parts in Box":n<=10?"6-10 Parts in Box":n<=15?"11-15 Parts in Box":"16-20 Parts in Box";var price=n<=5?3.85:n<=10?7.7:n<=15?11.55:15;var date=idx<=arrayLen(g.rows)?dateValue(v(g.rows[idx],"Received Date")):"";idx+=n;arrayAppend(rows,{"Line Item":n==1?"TV Part A-Grade Serialized Inventory (Single Part)":"TV Part A-Grade Inventory ("&label&")",Model:g.model,Serial:"N/A","Quantity in Box":n,"Receive Date":date,"Pallet Number":"N/A",Charge:price});}}
+        for(var g in a.part_groups){var idx=1;for(var n in breakdowns.box[g.key]){var label=n==1?"Serialized In Fee (1 part)":n<=5?"2-5 Parts in Box":n<=10?"6-10 Parts in Box":n<=15?"11-15 Parts in Box":"16-20 Parts in Box";var price=boxRate(n);var date=idx<=arrayLen(g.rows)?dateValue(v(g.rows[idx],"Received Date")):"";idx+=n;arrayAppend(rows,{"Line Item":n==1?"TV Part A-Grade Serialized Inventory (Single Part)":"TV Part A-Grade Inventory ("&label&")",Model:g.model,Serial:"N/A","Quantity in Box":n,"Receive Date":date,"Pallet Number":"N/A",Charge:price});}}
         variables.excel.fillTemplate(variables.layouts&"TCL_"&count&".xlsx",path,{Invoice:cells},[{name:"Line Items",headers:["Line Item","Model","Serial","Quantity in Box","Receive Date","Pallet Number","Charge"],rows:rows}]);
     }
 

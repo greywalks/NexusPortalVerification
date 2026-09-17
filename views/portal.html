@@ -949,6 +949,44 @@
     <button onclick="amcSavePricing()" class="text-xs font-mono px-4 py-2 rounded bg-ok/10 border border-ok/30 text-ok hover:bg-ok/20 transition-all">💾 Save AMC Pricing</button>
     <button onclick="amcResetPricing()" class="text-xs font-mono px-4 py-2 rounded bg-steel/10 border border-steel/30 text-steel hover:bg-steel/20 transition-all">↺ Reset to Defaults</button>
   </div>
+
+  <!-- ══ Philips (TPV) Invoice Pricing ══ -->
+  <h2 class="text-lg font-semibold text-slate-100 mb-1 mt-16">Philips Invoice Pricing</h2>
+  <p class="text-steel text-sm mb-4">Warehouse base, additional square footage and handling rates used by the Philips builder. Repair and harvest prices are the Repair Cost tiers above.</p>
+  <div class="grid md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-ink-50 border border-steel/30 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-steel/20 bg-ink-100/50">
+        <span class="font-mono text-xs text-slate-300 uppercase tracking-wide">Philips Rates</span>
+      </div>
+      <div class="p-4 space-y-3" id="philips-prices-form">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+  <div id="philips-pricing-status" class="hidden mb-3 px-4 py-2 rounded-lg text-sm font-mono"></div>
+  <div class="flex gap-3 mb-10">
+    <button type="button" onclick="philipsSavePricing()" class="text-xs font-mono px-4 py-2 rounded bg-ok/10 border border-ok/30 text-ok hover:bg-ok/20 transition-all">💾 Save Philips Pricing</button>
+    <button type="button" onclick="philipsResetPricing()" class="text-xs font-mono px-4 py-2 rounded bg-steel/10 border border-steel/30 text-steel hover:bg-steel/20 transition-all">↺ Reset to Defaults</button>
+  </div>
+
+  <!-- ══ TCL Invoice Pricing ══ -->
+  <h2 class="text-lg font-semibold text-slate-100 mb-1 mt-16">TCL Invoice Pricing</h2>
+  <p class="text-steel text-sm mb-4">Pallet rates (the lower rate applies above the pallet threshold) and per-box part fees by box size.</p>
+  <div class="grid md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-ink-50 border border-steel/30 rounded-lg overflow-hidden">
+      <div class="px-4 py-3 border-b border-steel/20 bg-ink-100/50">
+        <span class="font-mono text-xs text-slate-300 uppercase tracking-wide">TCL Rates</span>
+      </div>
+      <div class="p-4 space-y-3" id="tcl-prices-form">
+        <!-- populated by JS -->
+      </div>
+    </div>
+  </div>
+  <div id="tcl-pricing-status" class="hidden mb-3 px-4 py-2 rounded-lg text-sm font-mono"></div>
+  <div class="flex gap-3 mb-10">
+    <button type="button" onclick="tclSavePricing()" class="text-xs font-mono px-4 py-2 rounded bg-ok/10 border border-ok/30 text-ok hover:bg-ok/20 transition-all">💾 Save TCL Pricing</button>
+    <button type="button" onclick="tclResetPricing()" class="text-xs font-mono px-4 py-2 rounded bg-steel/10 border border-steel/30 text-steel hover:bg-steel/20 transition-all">↺ Reset to Defaults</button>
+  </div>
 </div><!-- /page-config -->
 
 <!-- ══════════════════════════════════════════════════════════

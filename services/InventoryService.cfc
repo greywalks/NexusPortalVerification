@@ -88,6 +88,29 @@ component output=false {
         return {filename:original,duplicate_file:false,source:arrayToList(sources,", "),rows:rowsRead,events:eventsAdded};
     }
 
+    // Integration ingest: rows arrive in the same column layout as the matching
+    // warehouse export (receiving, shipping, inventory, repair, fedex) so they
+    // flow through the same dedup and lifecycle logic as file imports. The
+    // payload hash makes a repeated submission a no-op.
+    struct function ingestRows(required string kind,required array rows,required string sourceLabel){
+        var k=lCase(trim(arguments.kind));if(!listFindNoCase("receiving,shipping,inventory,repair,fedex",k))throw(type="Logicore.Validation",message="kind must be one of receiving, shipping, inventory, repair, fedex.");
+        if(!arrayLen(arguments.rows))throw(type="Logicore.Validation",message="rows must contain at least one record.");
+        if(arrayLen(arguments.rows)>5000)throw(type="Logicore.Validation",message="Submit at most 5000 rows per request.");
+        for(var r in arguments.rows)if(!isStruct(r))throw(type="Logicore.Validation",message="Each row must be an object keyed by column name.");
+        var label=safeName(len(trim(arguments.sourceLabel))?arguments.sourceLabel:"api");var original="api:"&label&":"&k;
+        var digest=lCase(hash(serializeJson({kind:k,rows:arguments.rows}),"SHA-256"));
+        var exists=queryExecute("SELECT * FROM inventory_import_batches WHERE file_hash=:h",{h:digest},{datasource:variables.datasource});
+        if(exists.recordCount)return {duplicate_payload:true,batch_id:exists.id[1],rows:exists.rows_read[1],events:0};
+        var imported=now();
+        queryExecute("INSERT INTO inventory_import_batches(source_name,original_filename,stored_filename,file_hash,imported_at) VALUES('pending',:o,:s,:h,:at)",{o:original,s:"api",h:digest,at:{value:imported,cfsqltype:"cf_sql_timestamp"}},{datasource:variables.datasource});
+        var bq=queryExecute("SELECT id FROM inventory_import_batches WHERE file_hash=:h",{h:digest},{datasource:variables.datasource});var batchId=bq.id[1];
+        var rowsRead=0;var eventsAdded=0;
+        try{var rn=1;for(var rec in arguments.rows){rowsRead++;rn++;eventsAdded+=importRecord(batchId,k,"api:"&rn,rec,imported);}
+            queryExecute("UPDATE inventory_import_batches SET source_name=:s,rows_read=:r,events_added=:e,duplicates_skipped=:d WHERE id=:id",{s:k,r:rowsRead,e:eventsAdded,d:max(0,rowsRead-eventsAdded),id:batchId},{datasource:variables.datasource});
+        }catch(any e){queryExecute("DELETE FROM inventory_import_batches WHERE id=:id",{id:batchId},{datasource:variables.datasource});rethrow;}
+        return {duplicate_payload:false,batch_id:batchId,rows:rowsRead,events:eventsAdded};
+    }
+
     struct function shippingRange(string preset="last7",string start="",string end=""){
         var p=lCase(arguments.preset);if(!listFindNoCase("today,yesterday,last7,last30,custom",p))p="last7";var today=dateFormat(now(),"yyyy-mm-dd");var s="";var e=today;
         if(p=="today")s=today;else if(p=="yesterday"){s=dateFormat(dateAdd("d",-1,now()),"yyyy-mm-dd");e=s;}else if(p=="last30")s=dateFormat(dateAdd("d",-29,now()),"yyyy-mm-dd");else if(p=="custom"&&isDate(arguments.start)&&isDate(arguments.end)){s=dateFormat(arguments.start,"yyyy-mm-dd");e=dateFormat(arguments.end,"yyyy-mm-dd");if(s>e){var t=s;s=e;e=t;}}else{s=dateFormat(dateAdd("d",-6,now()),"yyyy-mm-dd");p="last7";}

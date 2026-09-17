@@ -147,6 +147,18 @@ component output=false {
     void function saveAmcDimensions(required struct dims){ writeJson(variables.configPath&"amc_dimensions.json",arguments.dims); }
     void function addAmcDimension(required string model, required numeric sqft){if(!len(trim(arguments.model)))fail("Model is required.");if(arguments.sqft<0)fail("Square footage for "&arguments.model&" must be 0 or more.");var d=getAmcDimensions();d[uCase(trim(arguments.model))]=arguments.sqft;saveAmcDimensions(d);}
 
+    // Philips (TPV) and TCL rates were hard-coded in the builders; they are now
+    // stored beside the AMC prices with the same validation and defaults.
+    struct function philipsDefaults(){return {warehouse_base:1910.00,demo_addl_sqft:3.50,service_addl_sqft:3.50,inbound_handling:6.00,outbound_handling:6.00,parts_addl_sqft:3.50};}
+    struct function getPhilipsPrices(){var d=philipsDefaults();var live=readJson(variables.configPath&"philips_prices.json",{});structAppend(d,live,true);return d;}
+    void function savePhilipsPrices(required struct prices){var clean=validatePriceMap(arguments.prices,getPhilipsPrices(),"Philips price");if(!structCount(clean))fail("No Philips prices were supplied.");var current=getPhilipsPrices();structAppend(current,clean,true);writeJson(variables.configPath&"philips_prices.json",current);}
+    void function resetPhilipsPrices(){if(fileExists(variables.configPath&"philips_prices.json"))fileDelete(variables.configPath&"philips_prices.json");}
+
+    struct function tclDefaults(){return {pallet_rate_small:75.00,pallet_rate_large:60.00,pallet_threshold:10,box_1:3.85,box_2_5:3.85,box_6_10:7.70,box_11_15:11.55,box_16_20:15.00};}
+    struct function getTclPrices(){var d=tclDefaults();var live=readJson(variables.configPath&"tcl_prices.json",{});structAppend(d,live,true);return d;}
+    void function saveTclPrices(required struct prices){var clean=validatePriceMap(arguments.prices,getTclPrices(),"TCL price");if(!structCount(clean))fail("No TCL prices were supplied.");if(structKeyExists(clean,"pallet_threshold")&&clean.pallet_threshold!=int(clean.pallet_threshold))fail("pallet_threshold must be a whole number of pallets.");var current=getTclPrices();structAppend(current,clean,true);writeJson(variables.configPath&"tcl_prices.json",current);}
+    void function resetTclPrices(){if(fileExists(variables.configPath&"tcl_prices.json"))fileDelete(variables.configPath&"tcl_prices.json");}
+
     struct function amcDefaults(){return {unit_receipt:8.00,storage_base:1910.00,base_sqft:500,storage_addl:3.50,order_fee:10.00,order_out_fee:8.00};}
     struct function getAmcPrices(){var d=amcDefaults();var live=readJson(variables.configPath&"amc_prices.json",{});structAppend(d,live,true);return d;}
     void function saveAmcPrices(required struct prices){var clean=validatePriceMap(arguments.prices,getAmcPrices(),"AMC price");if(!structCount(clean))fail("No AMC prices were supplied.");var current=getAmcPrices();structAppend(current,clean,true);writeJson(variables.configPath&"amc_prices.json",current);}

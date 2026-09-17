@@ -481,6 +481,32 @@ const XSS = '<img src=x onerror="window.__pwned=1">';
     assert(/click Save/.test(d.getElementById('pricing-status').textContent), 'reset not explained');
   });
 
+  await test('OK Philips and TCL pricing panels load, validate and save', async () => {
+    const { w, d, calls } = await loadPortal({ routes: {
+      'GET /get_philips_prices': json({ ok: true, defaults: { warehouse_base: 1910 }, prices: { warehouse_base: 1910, inbound_handling: 6 } }),
+      'POST /set_philips_prices': json({ ok: true }),
+      'GET /get_tcl_prices': json({ ok: true, defaults: { pallet_threshold: 10 }, prices: { pallet_threshold: 10, box_1: 3.85 } }),
+      'POST /set_tcl_prices': json({ ok: true }),
+      'GET /config/serial_rules': json({ rules: [] }),
+    } });
+    w.showPage('config');
+    await tick(10);
+    assert(d.querySelectorAll('.philips-price-input').length === 2, 'philips inputs not rendered');
+    d.querySelector('#tcl-price-pallet_threshold').value = '2.5';
+    await w.tclSavePricing();
+    assert(!calls.some(c => c.url.endsWith('/set_tcl_prices')), 'fractional threshold was saved');
+    d.querySelector('#tcl-price-pallet_threshold').value = '12';
+    await w.tclSavePricing();
+    const sent = JSON.parse(calls.find(c => c.url.endsWith('/set_tcl_prices')).body).prices;
+    assert(sent.pallet_threshold === 12 && sent.box_1 === 3.85, JSON.stringify(sent));
+    d.querySelector('#philips-price-warehouse_base').value = '';
+    await w.philipsSavePricing();
+    assert(!calls.some(c => c.url.endsWith('/set_philips_prices')), 'blank Philips price was saved');
+    d.querySelector('#philips-price-warehouse_base').value = '2000';
+    await w.philipsSavePricing();
+    assert(JSON.parse(calls.find(c => c.url.endsWith('/set_philips_prices')).body).prices.warehouse_base === 2000, 'philips price not sent');
+  });
+
   await tick(20);
   results.push([unhandled.length === 0, 'no unhandled promise rejections during the run',
     unhandled.length ? unhandled.map(e => e && e.message).join('; ') : undefined]);

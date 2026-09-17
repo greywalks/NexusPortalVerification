@@ -38,6 +38,13 @@ Steps 1–5 below were completed by GitHub Actions run `35183539818` (Lucee 7.1.
 9. Generate one invoice per builder end to end under the Apache deployment (progress stream must complete; regression for F-01).
 10. From a page on another origin, submit a POST to `/index.cfm/set_amc_prices`: the response must be 403.
 
+## Manual checks for the feature groundwork
+
+- **SSO:** on a non-production host with a test app registration, complete a Microsoft sign-in for (a) a user whose email is set on their account (expect `auth.sso_linked` then `auth.login method:sso`), (b) an unknown user with auto-provision off (expect the refusal page and `auth.sso_unlinked`), (c) an expired/reused callback URL (expect "could not be verified").
+- **API:** create a key with only `inventory:read`; confirm `POST /api/v1/inventory/events` returns 403; revoke and confirm 401. Point a real WMS extract at the ingest endpoint with a handful of rows and compare the serial pages with the CSV import of the same rows.
+- **Audit log:** filter by your own username and confirm the last hour of actions is complete; export CSV and open it in Excel (values starting with `=` must appear as text).
+- **Pricing:** change a Philips rate, generate a Philips invoice, open the workbook and confirm the *Breakdown* unit-price cells and the total both reflect the new rate; reset to defaults.
+
 ## Manual browser checks (not automated)
 
 - Keyboard: tab through the review tables; dynamically rendered inputs now carry `aria-label`s.

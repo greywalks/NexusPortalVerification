@@ -41,6 +41,16 @@ IDs prefixed `S` are server side (statically reviewed); `F` are browser side (ru
 | F-10 | Medium | A failed NonConforming delete closed the record as if deleted; slow searches could overwrite newer results. | Delete checks the response; requests are sequence-guarded. | jsdom suite. |
 | F-14–16 | Low | Legacy tab styling, serial-rule `year_pos` 0 saved as 5, unencoded download filenames. | Fixed. | jsdom suite. |
 
+## Changes after the initial remediation (feature work, statically reviewed until CI runs)
+
+| ID | Change | Where | Notes |
+| --- | --- | --- | --- |
+| C-01 | Philips (TPV) and TCL rates are configurable. | `ConfigService` (`philipsDefaults/getPhilipsPrices/savePhilipsPrices`, `tclDefaults/getTclPrices/saveTclPrices`), `InvoiceService.buildPhilips/buildTCL`, `InvoiceWorkbookService` (Philips unit-price cells C8–C19, TCL box charges), routes `/get|set_philips_prices`, `/get|set_tcl_prices`, Config page panels. | Defaults equal the former hard-coded values, so existing totals are unchanged; the parity suite changes the TCL pallet rate and checks the invoice follows. Closes the P2 "hard-coded rates" item. |
+| C-02 | Workshop corrections no longer drop rows silently. | `InvoiceService.buildWorkshop` | Unusable correction values (size not in 55/65/70/75/86, unknown category, still-invalid serial, unsupported field) are rejected with a 400 naming the rows. Rows removed during review (user exclusions, unresolved issues, unbillable size/category) are written to the *Excluded Serials* tab with a reason and counted in `excluded_count`. Closes the P2 "silent drop" item. |
+| C-03 | Append-only audit log. | `services/AuditService.cfc`, `audit()` helper in `index.cfm`, hooks in `index.cfm`, `routes/TrainingRoutes.cfm`, `routes/InventoryRoutes.cfm`; pages `/admin/audit` (filters, paging) and `/admin/audit/export.csv`; API `GET /api/v1/audit/events`. | Records actor, action, target, outcome, sanitized detail (passwords/secrets redacted), IP, correlation ID and path for sign-in (success/failure/throttled/SSO), account changes, user administration, every reference-data save, every invoice build, downloads, NonConforming CRUD/export, Training changes and sign-offs, Inventory imports/overrides/whitelist, API key lifecycle and API calls. Writes are best-effort and never block the audited action. Closes the P1 "no audit trail" item. |
+| C-04 | Microsoft Entra ID (Office 365) sign-in groundwork. | `services/SsoService.cfc`, `/auth/sso/login`, `/auth/sso/callback`, login-page button, `users.email/sso_subject/auth_source`, admin "Save email" form, `docs/SSO.md`. | OIDC authorization-code flow with PKCE, RS256 ID-token verification against the tenant JWKS, issuer/audience/tenant/nonce/expiry checks, email-based linking, optional auto-provisioning with no permissions, optional `SSO_ONLY`. **Inert unless configured; not yet tested against a real tenant.** |
+| C-05 | Integration API groundwork. | `services/ApiKeyService.cfc`, `routes/ApiRoutes.cfm` (`/api/v1/*`), `/admin/api-keys` pages, `InventoryService.ingestRows`, `OutputService.listAll`, `docs/API.md`. | Scoped bearer keys (hashed at rest, shown once, revocable); read endpoints for inventory, invoicing configuration and generated outputs; an idempotent inventory ingest that reuses the file importer's event fingerprinting; stable JSON error shape with correlation IDs. |
+
 ## Open findings
 
 | Priority | Finding | Impact / next step |
@@ -50,9 +60,7 @@ IDs prefixed `S` are server side (statically reviewed); `F` are browser side (ru
 | P1 | Analysis state (`session.amc`, `session.workshop`, …) is per session, so two browser tabs running the same module interfere with each other. | Key state by a per-analysis token returned to the client. |
 | P1 | Generated-file authorization records only a module subsection; user-chosen output names can collide and overwrite another user's file in the same module. | Record owner and use collision-resistant names. |
 | P1 | H2 file database, empty database password, ad hoc schema initialization, no migrations. | Unchanged. |
-| P1 | No audit trail for configuration changes, permission changes or invoice generation. | Unchanged. |
-| P2 | Philips unit prices (1910, 3.50, 6) and TCL pallet/box rates are hard-coded while AMC/Storage prices are configurable. | Parity with the Python source is preserved; decide whether they should be configurable. |
-| P2 | Workshop corrections accept any value for "Derive Size"/"Category"; an unrecognized value silently drops the row from billing instead of listing it as excluded. | Validate against the suggested values and report dropped rows. |
+| P1 | SSO (C-04) has not been exercised against a real Entra tenant; the API (C-05) has no rate limiting or IP allow-list, and audit events have no retention policy. | Test SSO on a non-production host first; add per-key throttling and a retention/purge job before wide use. |
 | P2 | `serial_rules.json` is editable at runtime but tracked in git; the two `Sample_Promethean_*` workbooks contain production-like rows. | Move runtime edits to an override file; scrub or remove the samples. |
 | P2 | Inline scripts/styles prevent a strict CSP; no structured logging beyond the new correlation ID. | Unchanged. |
 

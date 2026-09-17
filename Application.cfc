@@ -41,6 +41,9 @@ component output=false {
         if (!directoryExists(application.outputPath & ".access/")) directoryCreate(application.outputPath & ".access/", true);
 
         application.excel = new services.ExcelService();
+        application.audit = new services.AuditService(datasource="logicore");
+        application.apiKeys = new services.ApiKeyService(datasource="logicore");
+        application.sso = new services.SsoService();
         application.auth = new services.LuceeAuthService(datasource="logicore");
         application.configService = new services.ConfigService(rootPath=application.rootPath);
         application.outputs = new services.OutputService(outputPath=application.outputPath);

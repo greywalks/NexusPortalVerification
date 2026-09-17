@@ -1720,6 +1720,89 @@ function showSaveStatus(el, ok, message) {
   }
 })();
 
+// ── Philips and TCL pricing admin ─────────────────────────────────────────
+// Same editor as AMC, driven by a small table so the two panels share code.
+(function() {
+  const PANELS = {
+    philips: {
+      form: 'philips-prices-form', status: 'philips-pricing-status', get: '/get_philips_prices', set: '/set_philips_prices',
+      labels: { warehouse_base: 'Warehouse Cost, First 500 sq ft (flat $)', demo_addl_sqft: 'Demo Additional Sq Ft ($/sq ft, 50-ft increments)',
+        service_addl_sqft: 'Service Additional Sq Ft ($/sq ft, 50-ft increments)', inbound_handling: 'Inbound Handling ($/unit)',
+        outbound_handling: 'Outbound Handling ($/unit)', parts_addl_sqft: 'Parts Additional Sq Ft ($/sq ft)' },
+    },
+    tcl: {
+      form: 'tcl-prices-form', status: 'tcl-pricing-status', get: '/get_tcl_prices', set: '/set_tcl_prices',
+      labels: { pallet_rate_small: 'Pallet rate, up to threshold ($/pallet)', pallet_rate_large: 'Pallet rate, above threshold ($/pallet)',
+        pallet_threshold: 'Pallet threshold (pallets)', box_1: 'Serialized single part ($/box)', box_2_5: '2-5 parts in box ($/box)',
+        box_6_10: '6-10 parts in box ($/box)', box_11_15: '11-15 parts in box ($/box)', box_16_20: '16-20 parts in box ($/box)' },
+      integer: ['pallet_threshold'],
+    },
+  };
+  const state = { philips: { defaults: {}, current: {} }, tcl: { defaults: {}, current: {} } };
+
+  function render(name) {
+    const panel = PANELS[name], form = document.getElementById(panel.form);
+    if (!form) return;
+    form.innerHTML = Object.entries(state[name].current).map(([k, v]) => `
+      <div class="flex items-center justify-between gap-3">
+        <label class="text-steel text-xs flex-1" for="${name}-price-${escHtml(k)}">${escHtml(panel.labels[k] || k)}</label>
+        <div class="flex items-center gap-1">
+          <span class="text-steel text-xs">${(panel.integer || []).includes(k) ? '' : '$'}</span>
+          <input type="number" step="${(panel.integer || []).includes(k) ? '1' : '0.01'}" min="0" value="${escHtml(v)}" data-key="${escHtml(k)}" id="${name}-price-${escHtml(k)}"
+            class="${name}-price-input w-24 bg-ink-100 border border-steel/30 rounded px-2 py-1 text-xs text-slate-200 text-right" />
+        </div>
+      </div>`).join('');
+  }
+
+  async function load(name) {
+    const d = await requestJson(PANELS[name].get);
+    if (!d.ok) { console.warn(name + ' pricing load failed', d.error); return; }
+    state[name].defaults = { ...d.defaults };
+    state[name].current = { ...d.prices };
+    render(name);
+  }
+
+  async function save(name) {
+    const panel = PANELS[name], prices = {}, invalid = [];
+    document.querySelectorAll('.' + name + '-price-input').forEach(inp => {
+      const n = nonNegativeValue(inp);
+      const bad = Number.isNaN(n) || ((panel.integer || []).includes(inp.dataset.key) && !Number.isInteger(n));
+      inp.classList.toggle('border-warn', bad);
+      if (bad) invalid.push(panel.labels[inp.dataset.key] || inp.dataset.key); else prices[inp.dataset.key] = n;
+    });
+    const st = document.getElementById(panel.status);
+    if (invalid.length) { showSaveStatus(st, false, 'Nothing saved. Enter a value of 0 or more for: ' + invalid.join(', ')); return; }
+    const d = await requestJson(panel.set, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prices }) });
+    showSaveStatus(st, d.ok, d.ok ? '✓ Prices saved' : '❌ ' + (d.error || 'Save failed'));
+    if (d.ok) state[name].current = { ...prices };
+  }
+
+  function reset(name) {
+    if (!confirm('Reset all ' + (name === 'tcl' ? 'TCL' : 'Philips') + ' prices to defaults?')) return;
+    state[name].current = { ...state[name].defaults };
+    render(name);
+    showSaveStatus(document.getElementById(PANELS[name].status), true, 'Defaults loaded — click Save to apply them.');
+  }
+
+  window.philipsSavePricing = () => save('philips');
+  window.philipsResetPricing = () => reset('philips');
+  window.philipsLoadPricing = () => load('philips');
+  window.tclSavePricing = () => save('tcl');
+  window.tclResetPricing = () => reset('tcl');
+  window.tclLoadPricing = () => load('tcl');
+
+  const prevShowPage = window.showPage;
+  if (prevShowPage) {
+    window.showPage = function(page) {
+      prevShowPage(page);
+      if (page === 'config') {
+        if (!Object.keys(state.philips.current).length) load('philips');
+        if (!Object.keys(state.tcl.current).length) load('tcl');
+      }
+    };
+  }
+})();
+
 // ── Sidebar / topbar enhancements (design overhaul, additive only) ───────────
 (function() {
   const crumbMap = { promethean: 'Promethean', amc: 'AMC', tcl: 'TCL', philips: 'Philips', config: 'Config' };

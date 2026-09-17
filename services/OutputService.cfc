@@ -20,6 +20,20 @@ component output=false {
         return fileExists(path)?path:"";
     }
 
+    // Metadata for every registered output (name, module, created, size), newest first.
+    array function listAll(){
+        var out=[];
+        if(!directoryExists(variables.accessPath))return out;
+        var markers=directoryList(variables.accessPath,false,"query","*.json");
+        for(var row in markers){
+            var name=left(row.name,len(row.name)-5);var filePath=variables.outputPath&name;
+            var meta={};try{meta=deserializeJson(fileRead(variables.accessPath&row.name,"utf-8"));}catch(any e){meta={};}
+            arrayAppend(out,{filename:name,subsection:meta.subsection?:"",created_at:meta.created_at?:"",exists:fileExists(filePath),size:fileExists(filePath)?getFileInfo(filePath).size:0});
+        }
+        arraySort(out,function(a,b){return compare(b.created_at&"",a.created_at&"");});
+        return out;
+    }
+
     void function cleanOld(numeric hours=48){
         var cutoff=dateAdd("h",-arguments.hours,now());
         var q=directoryList(variables.outputPath,false,"query");
