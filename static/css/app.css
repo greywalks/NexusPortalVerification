@@ -1003,3 +1003,27 @@ button.icon { padding: 2px 8px; font-size: .85rem; line-height: 1.4; min-width: 
 /* Footer */
 .sidebar-footer { border-top: 1px solid var(--sidebar-border); padding: 10px 14px; }
 .sidebar-footer .ver-tag { font-size: 10.5px; letter-spacing: .06em; color: var(--text-muted); opacity: .7; }
+
+/* ═══ Sidebar: icons on the primary tier only, textured surface ═══════════ */
+/* Icons mark the primary tier (Home, group headers, My Account). Everything
+   inside a group is text, aligned to one left edge, so module links and
+   sub-pages read as one list. */
+.nav-group-items .side-link svg { display: none; }
+.nav-group-items .side-link { padding-left: 10px; }
+.nav-group-items .side-link.active::before { left: -9px; }
+.nav-group-items .sidebar-sub-body .side-link { padding-left: 10px; }
+
+/* Surface: a faint dot grid at the page's 40px rhythm plus a soft accent wash
+   at the top, so the rail belongs to the page instead of floating beside it. */
+.sidebar {
+  background-color: var(--sidebar-bg);
+  background-image:
+    radial-gradient(ellipse 120% 40% at 50% -10%, rgba(var(--accent-rgb), .10), transparent 70%),
+    radial-gradient(var(--grid-line) 1px, transparent 1.2px);
+  background-size: 100% 100%, 40px 40px;
+  background-position: 0 0, 20px 20px;
+  box-shadow: 1px 0 0 var(--sidebar-border), 6px 0 24px -18px rgba(0, 0, 0, .35);
+}
+.sidebar-brand { background: transparent; }
+.sidebar-nav { position: relative; }
+[data-theme="light"] .sidebar { box-shadow: 1px 0 0 var(--sidebar-border), 6px 0 24px -20px rgba(15, 23, 42, .25); }
