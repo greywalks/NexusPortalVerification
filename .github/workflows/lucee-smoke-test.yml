@@ -69,8 +69,13 @@ jobs:
 
       - name: Verify permissions admin
         run: |
-          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/admin/permissions -o admin.body
-          grep -q "Users & Permissions" admin.body
+          code=$(curl -sS -b cookies.txt -o admin.body -w '%{http_code}' http://127.0.0.1:5000/index.cfm/admin/permissions)
+          echo "Admin HTTP: $code"
+          test "$code" = "200" || { head -c 2000 admin.body; echo; exit 1; }
+          # The page renders inside the shared shell, which HTML-encodes the title,
+          # so check for the create-user form and the admin navigation entry instead.
+          grep -q "Create user" admin.body
+          grep -q 'id="portal-nav-admin-permissions"' admin.body
 
       - name: Verify Training Tracker
         run: |
@@ -109,7 +114,7 @@ jobs:
         if: failure()
         run: |
           echo "--- captured responses ---"
-          for f in training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
+          for f in admin.body training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
           echo "--- USSI Nexus application errors ---"
           find "$HOME/.CommandBox/server" -type f -name 'ussi_nexus.log' -print -exec tail -n 80 {} \; || true
           echo "--- application log tail ---"
