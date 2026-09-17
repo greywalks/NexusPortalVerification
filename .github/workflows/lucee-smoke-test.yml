@@ -103,7 +103,12 @@ jobs:
           grep -qi '"ok"' storage-prices.json
 
       - name: Verify deterministic billing fixtures
-        run: curl --fail-with-body -sS http://127.0.0.1:5000/index.cfm/tests/billing_parity.cfm
+        # The fixture is a standalone template that Application.cfc only admits
+        # when CI=true; it is not an index.cfm route, so request it directly.
+        run: |
+          code=$(curl -sS -o fixtures.body -w '%{http_code}' http://127.0.0.1:5000/tests/billing_parity.cfm)
+          echo "Fixtures HTTP: $code"; head -c 3000 fixtures.body; echo
+          test "$code" = "200"
 
       - name: Verify full authenticated parity workflows
         env:
@@ -114,7 +119,7 @@ jobs:
         if: failure()
         run: |
           echo "--- captured responses ---"
-          for f in admin.body training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
+          for f in admin.body fixtures.body training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
           echo "--- USSI Nexus application errors ---"
           find "$HOME/.CommandBox/server" -type f -name 'ussi_nexus.log' -print -exec tail -n 80 {} \; || true
           echo "--- application log tail ---"
