@@ -367,6 +367,8 @@ print('PASS: audit log pages/export and integration API keys, reads, ingest and 
 # Home hub: seeded content, explicit editor permission, links with targets, sanitized bulletins.
 home=check(s.get(BASE+'/home')).text
 assert 'QUICK LINKS' in home and 'Remote NGERP access' in home and 'home-link-highlight' in home and 'USSI Spam Filter' in home,home[-1500:]
+# The restricted user signed out at the end of the permissions section; sign back in with the changed password.
+limited=requests.Session();check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass-updated'},allow_redirects=False),302)
 check(limited.get(BASE+'/home/edit'),403)
 check(limited.post(BASE+'/home/sections/new',data={'title':'x','kind':'links','col':'1'}),403)
 r=s.post(BASE+'/home/sections/new',data={'title':'Parity Links','kind':'links','col':'2'},allow_redirects=False);check(r,302);sec_id=re.search(r'home-section-(\d+)',r.headers['Location']).group(1)
@@ -394,4 +396,5 @@ postform('/home/banner',{'banner':'QUICK LINKS'})
 postform(f'/home/sections/{sec_id}/delete',{});postform(f'/home/sections/{bul_id}/delete',{})
 assert 'Parity Links' not in check(s.get(BASE+'/home')).text
 assert 'home.section_deleted' in check(s.get(BASE+'/admin/audit',params={'action':'home.'})).text
+check(limited.post(BASE+'/logout',allow_redirects=False),302)
 print('PASS: home hub content, editor permission, link targets and bulletin sanitizing')
