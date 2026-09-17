@@ -393,6 +393,10 @@ bul=re.search(r'id="home-section-'+bul_id+r'".*?<div class="home-bulletin">(.*?)
 # Lucee's scriptProtect rewrites "<script" in form fields to "<invalidTag" before our sanitizer sees it; both spellings are escaped text.
 expected_bul='<p>Hello <strong>team</strong></p>&lt;{tag}&gt;alert(1)&lt;/script&gt;bad <a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>&lt;img src=x onerror=alert(3)&gt;<mark>note</mark>'
 assert bul in (expected_bul.format(tag='script'),expected_bul.format(tag='invalidTag')),bul
+# Re-saving what the editor sends back (already-escaped text nodes) must not double-escape.
+postform(f'/home/sections/{bul_id}/update',{'title':'Parity Bulletin','body_html':'<p>Say &quot;hi&quot; &amp; wave &#39;now&#39; &lt;not a tag&gt; 5 &gt; 3</p>'})
+bul2=re.search(r'id="home-section-'+bul_id+r'".*?<div class="home-bulletin">(.*?)</div></section>',check(s.get(BASE+'/home')).text,re.S).group(1)
+assert bul2=='<p>Say &quot;hi&quot; &amp; wave &#39;now&#39; &lt;not a tag&gt; 5 &gt; 3</p>',bul2
 # grant the editor permission to the limited user, then they can edit but still not administer
 postform(f'/admin/permissions/users/{hub_uid}/set',{'home_editor':'on'})
 check(limited.get(BASE+'/home/edit'))

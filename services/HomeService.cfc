@@ -147,10 +147,32 @@ component output=false {
     string function escapeHubText(required string text) {
         return replace(replace(replace(replace(replace(arguments.text, "&", "&amp;", "all"), "<", "&lt;", "all"), ">", "&gt;", "all"), '"', "&quot;", "all"), "'", "&##39;", "all");
     }
+    // Like escapeHubText, but an "&" that already begins a character reference
+    // (&amp; &quot; &#39; &#x27; ...) is left alone. The editor submits text nodes
+    // already escaped, so re-escaping them would double up on every save.
+    string function escapeHubMarkup(required string text) {
+        var t = arguments.text; var out = ""; var i = 1; var n = len(t);
+        while (i <= n) {
+            var ch = mid(t, i, 1);
+            if (ch == "&") {
+                var semi = find(";", t, i + 1);
+                var ref = (semi && semi - i <= 10) ? mid(t, i + 1, semi - i - 1) : "";
+                var isRef = len(ref) && (reFind("^[A-Za-z][A-Za-z0-9]*$", ref) || reFind("^##[0-9]+$", ref) || reFind("^##[xX][0-9A-Fa-f]+$", ref));
+                out &= isRef ? "&" : "&amp;";
+            }
+            else if (ch == "<") out &= "&lt;";
+            else if (ch == ">") out &= "&gt;";
+            else if (ch == '"') out &= "&quot;";
+            else if (ch == "'") out &= "&##39;";
+            else out &= ch;
+            i++;
+        }
+        return out;
+    }
     string function sanitizeBulletinHtml(required string html) {
         var allowed = {p:1, br:1, strong:1, b:1, em:1, i:1, u:1, ul:1, ol:1, li:1, h3:1, h4:1, blockquote:1, mark:1, s:1};
         var aliases = {b:"strong", i:"em", h4:"h3"};
-        var enc = this.escapeHubText(arguments.html);
+        var enc = this.escapeHubMarkup(arguments.html);
         var parts = listToArray(enc, "&lt;", true, true);
         if (!arrayLen(parts)) return "";
         var out = parts[1];

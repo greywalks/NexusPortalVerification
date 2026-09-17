@@ -849,6 +849,9 @@ body::before { display: none; }
 
 /* ── Home hub (intranet landing page) ─────────────────────────────────── */
 .home-hub { max-width: 1400px; }
+/* The banner is the page's own heading; hide the shell's generic "Home" title. */
+.workspace-home > .workspace-title { display: none; }
+.workspace-home .home-hub { margin-top: 4px; }
 .home-banner { background: #2f1f7a; color: #fff; text-align: center; font-weight: 600; letter-spacing: .08em; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; }
 [data-theme="light"] .home-banner { background: #3b2a8f; }
 .home-columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; }
