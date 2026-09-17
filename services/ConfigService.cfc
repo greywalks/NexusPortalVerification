@@ -82,10 +82,12 @@ component output=false {
         return defaults;
     }
     void function saveStoragePrices(required struct prices) {
-        var defaults = storageDefaults();
+        // Keys already present (defaults plus any previously saved part type) are accepted;
+        // anything else is rejected so a typo cannot introduce a price nothing bills against.
+        var known = getStoragePrices();
         var clean = {};
-        if (structKeyExists(arguments.prices, "part_type_prices")) clean.part_type_prices = validatePriceMap(arguments.prices.part_type_prices, defaults.part_type_prices, "Part type price");
-        if (structKeyExists(arguments.prices, "line_prices")) clean.line_prices = validatePriceMap(arguments.prices.line_prices, defaults.line_prices, "Line price");
+        if (structKeyExists(arguments.prices, "part_type_prices")) clean.part_type_prices = validatePriceMap(arguments.prices.part_type_prices, known.part_type_prices, "Part type price");
+        if (structKeyExists(arguments.prices, "line_prices")) clean.line_prices = validatePriceMap(arguments.prices.line_prices, known.line_prices, "Line price");
         for (var key in arguments.prices) if (!listFindNoCase("part_type_prices,line_prices", key)) fail("Unknown storage pricing section '" & key & "'.");
         if (!structCount(clean)) fail("No storage prices were supplied.");
         // Sections not supplied keep their current values; the frontend always sends both.
@@ -147,7 +149,7 @@ component output=false {
 
     struct function amcDefaults(){return {unit_receipt:8.00,storage_base:1910.00,base_sqft:500,storage_addl:3.50,order_fee:10.00,order_out_fee:8.00};}
     struct function getAmcPrices(){var d=amcDefaults();var live=readJson(variables.configPath&"amc_prices.json",{});structAppend(d,live,true);return d;}
-    void function saveAmcPrices(required struct prices){var clean=validatePriceMap(arguments.prices,amcDefaults(),"AMC price");if(!structCount(clean))fail("No AMC prices were supplied.");var current=getAmcPrices();structAppend(current,clean,true);writeJson(variables.configPath&"amc_prices.json",current);}
+    void function saveAmcPrices(required struct prices){var clean=validatePriceMap(arguments.prices,getAmcPrices(),"AMC price");if(!structCount(clean))fail("No AMC prices were supplied.");var current=getAmcPrices();structAppend(current,clean,true);writeJson(variables.configPath&"amc_prices.json",current);}
     void function resetAmcPrices(){if(fileExists(variables.configPath&"amc_prices.json"))fileDelete(variables.configPath&"amc_prices.json");}
 
     struct function readDimensionsWorkbook(required string path){
