@@ -1,0 +1,46 @@
+# Replace the __PLACEHOLDERS__ before enabling this site.
+# This connector block uses Apache mod_proxy_http and a Lucee/Tomcat HTTP
+# connector listening only on 127.0.0.1:8888. If your Lucee installer already
+# manages hosts through mod_cfml, remove the ProxyPassMatch/ProxyPassReverse
+# directives and retain the VirtualHost, Directory, and security rules.
+
+<VirtualHost *:80>
+    ServerName __SERVER_NAME__
+    DocumentRoot "__APP_ROOT__"
+    DirectoryIndex index.cfm
+
+    ErrorLog ${APACHE_LOG_DIR}/ussi-nexus-error.log
+    CustomLog ${APACHE_LOG_DIR}/ussi-nexus-access.log combined
+
+    ProxyPreserveHost On
+    ProxyTimeout 600
+    # Only the public router is proxied; direct CFML source requests are denied below.
+    ProxyPassMatch ^/(index\.cfm)(/.*)?$ http://127.0.0.1:8888/$1$2
+    ProxyPassReverse / http://127.0.0.1:8888/
+
+    <Directory "__APP_ROOT__">
+        Require all granted
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        LimitRequestBody 104857600
+
+        RewriteEngine On
+        RewriteRule ^(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$) - [R=404,L,NC]
+        RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|[^/]+\.md)$ - [R=404,L,NC]
+        RewriteRule ^(?!index\.cfm(?:/|$)).*\.cf[cm](?:/|$) - [R=404,L,NC]
+        # Application routes use explicit /index.cfm/... URLs.
+    </Directory>
+
+    <LocationMatch "(?i)^/(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$)">
+        Require all denied
+    </LocationMatch>
+
+    <FilesMatch "(?i)^(?:Application\.cfc|server\.json|\.CFConfig\.json|.*\.md)$">
+        Require all denied
+    </FilesMatch>
+</VirtualHost>
+
+# Terminate TLS either in a second :443 VirtualHost or at a trusted upstream
+# proxy/load balancer. Production must set USSI_NEXUS_ENV=production so session
+# cookies receive the Secure attribute. Forward X-Forwarded-Proto=https when TLS
+# terminates upstream.

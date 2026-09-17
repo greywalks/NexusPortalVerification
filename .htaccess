@@ -1,0 +1,17 @@
+Options -Indexes
+DirectoryIndex index.cfm
+
+<IfModule !mod_rewrite.c>
+    Require all denied
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Never expose application internals, mutable runtime data, tests, or deployment files.
+    RewriteRule ^(?:\.git|WEB-INF|data|uploads|outputs|services|routes|config|migration|template|scripts|tests|lib|deploy)(?:/|$) - [R=404,L,NC]
+    RewriteRule ^(?:Application\.cfc|server\.json|\.CFConfig\.json|[^/]+\.md)$ - [R=404,L,NC]
+    RewriteRule ^(?!index\.cfm(?:/|$)).*\.cf[cm](?:/|$) - [R=404,L,NC]
+
+    # Application routes use explicit /index.cfm/... URLs. No catch-all rewrite is required.
+</IfModule>

@@ -1,0 +1,71 @@
+name: Import unchanged source assets
+
+on:
+  push:
+    paths:
+      - '.github/workflows/import-source-assets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Lucee repository
+        uses: actions/checkout@v4
+        with:
+          path: lucee
+
+      - name: Check out original Logicore Portal
+        uses: actions/checkout@v4
+        with:
+          repository: greywalks/Logicore-Portal
+          ref: main
+          path: source
+
+      - name: Copy unchanged frontend, templates and reference data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p lucee/static/css lucee/static/js lucee/static/images lucee/template lucee/config lucee/migration/source-templates lucee/migration/source-training-templates lucee/views
+
+          # The portal shell and interactive JavaScript are now USSI
+          # Nexus-owned files. Do not overwrite their navigation, branding,
+          # shared-shell, or theme behavior with the older Flask versions.
+          cp source/static/css/tailwind.css lucee/static/css/tailwind.css
+          test -f lucee/static/ussi_nexus_mark.png
+          test -f lucee/static/ussi_global_logo.png
+          test -f lucee/static/js/app.js
+          test -f lucee/static/js/nonconforming.js
+          test -f lucee/views/portal.html
+          cp source/static/logicore_logo.png lucee/static/logicore_logo.png
+          cp source/static/logicore_mark.png lucee/static/logicore_mark.png
+          cp source/static/logicore_logo.png lucee/static/images/logicore_logo.png
+          cp source/static/logicore_mark.png lucee/static/images/logicore_mark.png
+
+          cp source/template/*.xlsx lucee/template/
+          cp source/serial_rules.json lucee/config/serial_rules.json
+          cp source/whitelist_default.json lucee/config/whitelist_default.json
+          cp source/amc_dimensions_default.json lucee/config/amc_dimensions_default.json
+          cp source/philips_reference_default.json lucee/config/philips_reference_default.json
+          cp source/fedex_shipment_defaults.json lucee/config/fedex_shipment_defaults.json
+
+          cp source/templates/*.html lucee/migration/source-templates/
+          cp source/training_tracker/templates/*.html lucee/migration/source-training-templates/
+
+      - name: Commit imported assets
+        working-directory: lucee
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static template config migration views
+          if git diff --cached --quiet; then
+            echo "Source assets already current."
+            exit 0
+          fi
+          git commit -m "Import and render current Logicore-Portal assets"
+          git push

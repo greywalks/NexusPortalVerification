@@ -1,0 +1,12 @@
+data/
+uploads/
+outputs/
+.engine/
+*.log
+tests/generated/
+__pycache__/
+.pytest_cache/
+config/*_prices.json
+config/philips_reference.json
+config/amc_dimensions.json
+lib/h2-2.1.214.jar

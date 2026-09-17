@@ -1,0 +1,114 @@
+name: Lucee smoke test
+
+on:
+  push:
+    branches: [main, "parity/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      USSI_NEXUS_BOOTSTRAP_USERNAME: ci.admin
+      USSI_NEXUS_BOOTSTRAP_PASSWORD: ussi-nexus-ci-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up CommandBox
+        uses: Ortus-Solutions/setup-commandbox@v2.0.1
+        with:
+          installSystemModules: true
+
+      - name: Set up Python parity client
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install parity client dependencies
+        run: python -m pip install --disable-pip-version-check requests openpyxl
+
+      - name: Start Lucee
+        run: |
+          box server start --noOpenBrowser
+          sleep 15
+
+      - name: Verify health endpoint
+        run: curl --fail-with-body --show-error --retry 3 --retry-delay 2 http://127.0.0.1:5000/index.cfm/healthz
+
+      - name: Verify login page
+        run: |
+          curl -sS -D login.headers -o login.body http://127.0.0.1:5000/index.cfm/login
+          grep -q "HTTP/1.1 200" login.headers
+          grep -q "Sign in" login.body
+
+      - name: Authenticate default administrator
+        run: |
+          curl -sS -D auth.headers -o auth.body -c cookies.txt -b cookies.txt \
+            -X POST -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "username=$USSI_NEXUS_BOOTSTRAP_USERNAME" \
+            --data-urlencode "password=$USSI_NEXUS_BOOTSTRAP_PASSWORD" \
+            --data-urlencode "next=/" \
+            http://127.0.0.1:5000/index.cfm/login
+          grep -Eq "HTTP/1.1 30[12378]" auth.headers
+
+      - name: Verify portal shell
+        run: |
+          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/ -o portal.body
+          grep -q "USSI Nexus" portal.body
+
+      - name: Verify permissions admin
+        run: |
+          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/admin/permissions -o admin.body
+          grep -q "Users & Permissions" admin.body
+
+      - name: Verify Training Tracker
+        run: |
+          code=$(curl -sS -b cookies.txt -D training.headers -o training.body -w '%{http_code}' http://127.0.0.1:5000/index.cfm/training-tracker/)
+          echo "Training HTTP: $code"
+          cat training.headers
+          head -c 4000 training.body || true
+          echo
+          test "$code" = "200"
+          grep -q "Training" training.body
+
+      - name: Verify Inventory Management
+        run: |
+          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/inventory-management/ -o inventory.body
+          grep -q "Inventory Management" inventory.body
+
+      - name: Verify NonConforming API
+        run: |
+          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/nonconforming/api/items -o nonconforming.json
+          grep -qi '"ok"' nonconforming.json
+
+      - name: Verify config API
+        run: |
+          curl --fail-with-body -sS -b cookies.txt http://127.0.0.1:5000/index.cfm/get_storage_prices -o storage-prices.json
+          grep -qi '"ok"' storage-prices.json
+
+      - name: Verify deterministic billing fixtures
+        run: curl --fail-with-body -sS http://127.0.0.1:5000/index.cfm/tests/billing_parity.cfm
+
+      - name: Verify full authenticated parity workflows
+        env:
+          USSI_NEXUS_TEST_URL: http://127.0.0.1:5000
+        run: python tests/http_parity.py
+
+      - name: Show Lucee logs on failure
+        if: failure()
+        run: |
+          echo "--- captured responses ---"
+          for f in training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
+          echo "--- USSI Nexus application errors ---"
+          find "$HOME/.CommandBox/server" -type f -name 'ussi_nexus.log' -print -exec tail -n 80 {} \; || true
+          echo "--- application log tail ---"
+          find "$HOME/.CommandBox/server" -type f -name 'application.log' -print -exec tail -n 80 {} \; || true
+
+      - name: Stop Lucee
+        if: always()
+        run: box server stop || true

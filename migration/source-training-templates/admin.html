@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ c('nav.admin') }} · {{ c('site.name') }}{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+  <p class="font-mono text-xs uppercase tracking-widest text-amber-dark mb-1">Site-wide</p>
+  <h1 class="font-display text-4xl text-ink">{{ c('nav.admin') }}</h1>
+  <p class="font-body text-sm text-ink-faint mt-2">Every button, heading, and message across the app lives here — edit anything below and it updates everywhere it appears. Nothing here affects your weeks, topics, or roster data.</p>
+</div>
+
+<div class="flex gap-4 mb-8 font-mono text-xs uppercase tracking-widest">
+  <a href="#content" class="border-b-2 border-amber text-amber-dark pb-1">Content</a>
+  <a href="#appearance" class="border-b-2 border-transparent text-ink-faint hover:text-amber-dark pb-1">Appearance</a>
+</div>
+
+<!-- ===================== CONTENT ===================== -->
+<section id="content" class="mb-14 scroll-mt-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-display text-2xl text-ink">Content</h2>
+    <form method="POST" action="{{ url_for('admin_reset') }}" onsubmit="return confirm('Reset all text to the built-in defaults?')">
+      <input type="hidden" name="scope" value="content">
+      <button class="font-mono text-xs uppercase tracking-wide text-ink-faint hover:text-rose">Reset text to defaults</button>
+    </form>
+  </div>
+
+  <form method="POST" action="{{ url_for('admin_save_content') }}">
+    <div class="space-y-4">
+      {% for group in schema %}
+      <details class="bg-parchment-dim border border-parchment-line rounded-lg" {% if loop.first %}open{% endif %}>
+        <summary class="cursor-pointer select-none px-5 py-4 font-display text-lg text-ink flex items-center justify-between">
+          {{ group.category }}
+          <span class="font-mono text-[10px] uppercase tracking-widest text-ink-faint">{{ group.fields|length }} fields</span>
+        </summary>
+        <div class="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-parchment-line pt-4">
+          {% for field in group.fields %}
+          <div>
+            <label class="block font-mono text-[11px] uppercase tracking-wide text-ink-faint mb-1">{{ field.label }}</label>
+            <input
+              type="text"
+              name="{{ field.key }}"
+              value="{{ values.get(field.key, field.default) }}"
+              placeholder="{{ field.default }}"
+              class="w-full px-3 py-2 text-sm rounded-md border border-parchment-line bg-parchment focus:outline-none focus:ring-2 focus:ring-amber"
+            >
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+
+    <button type="submit" class="mt-6 bg-amber hover:bg-amber-dark text-ink font-semibold font-mono text-sm uppercase tracking-wide px-6 py-3 rounded-md shadow-sm">
+      Save content
+    </button>
+  </form>
+</section>
+
+<!-- ===================== APPEARANCE ===================== -->
+<section id="appearance" class="scroll-mt-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-display text-2xl text-ink">Appearance</h2>
+    <form method="POST" action="{{ url_for('admin_reset') }}" onsubmit="return confirm('Reset colors to the built-in defaults?')">
+      <input type="hidden" name="scope" value="appearance">
+      <button class="font-mono text-xs uppercase tracking-wide text-ink-faint hover:text-rose">Reset colors to defaults</button>
+    </form>
+  </div>
+  <p class="font-body text-sm text-ink-faint mb-5">These five colors drive every shade used across the app (buttons, backgrounds, badges). Pick a color or type a hex code.</p>
+
+  <form method="POST" action="{{ url_for('admin_save_appearance') }}" class="bg-parchment-dim border border-parchment-line rounded-lg p-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {% for field in theme_fields %}
+      <div>
+        <label class="block font-mono text-[11px] uppercase tracking-wide text-ink-faint mb-2">{{ field.label }}</label>
+        <div class="flex items-center gap-3">
+          <input
+            type="color"
+            id="picker_{{ field.key }}"
+            value="{{ colors.get(field.key, field.default) }}"
+            class="w-12 h-11 rounded-md border border-parchment-line cursor-pointer shrink-0"
+            oninput="document.getElementById('hex_{{ field.key }}').value = this.value.toUpperCase()"
+          >
+          <input
+            type="text"
+            id="hex_{{ field.key }}"
+            name="{{ field.key }}"
+            value="{{ colors.get(field.key, field.default) }}"
+            class="flex-1 px-3 py-2 text-sm font-mono rounded-md border border-parchment-line bg-parchment focus:outline-none focus:ring-2 focus:ring-amber"
+            oninput="document.getElementById('picker_{{ field.key }}').value = this.value"
+          >
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <button type="submit" class="mt-6 bg-amber hover:bg-amber-dark text-ink font-semibold font-mono text-sm uppercase tracking-wide px-6 py-3 rounded-md shadow-sm">
+      Save appearance
+    </button>
+  </form>
+</section>
+
+<p class="font-body text-sm text-ink-faint mt-10 border-t border-parchment-line pt-6">
+  Users, passwords, and roles (Admin / Editor / Viewer) for Training Tracker are
+  managed from the portal's <strong>Users &amp; Permissions</strong> screen, not here.
+</p>
+
+{% endblock %}
