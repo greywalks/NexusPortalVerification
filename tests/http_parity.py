@@ -55,7 +55,8 @@ login_response=check(s.post(BASE+'/login',data={'username':TEST_USERNAME,'passwo
 assert login_response.headers.get('X-Content-Type-Options')=='nosniff'
 assert api('/healthz')['engine']=='Lucee'
 for protected in ['/services/InvoiceService.cfc','/config/serial_rules.json','/template/FedEx_Shipment_Upload_Template.xlsx','/server.json','/README.md','/BRANDING.md','/AUDIT_REPORT.md','/ENTERPRISE_READINESS.md']:check(s.get(ROOT+protected),404)
-portal=check(s.get(BASE+'/')).text
+home=check(s.get(BASE+'/')).text;assert 'class="home-hub"' in home and 'id="portal-nav-home"' in home and 'Edit home page' in home,'root is not the home hub'
+portal=check(s.get(BASE+'/?portal=invoice-generator')).text
 assert '<script>window.LOGICORE_AUTH=' in portal
 assert '"invoiceChildren"' in portal and '"isSuperadmin"' in portal
 assert 'class="app-shell"' in portal and 'id="sidebar"' in portal
@@ -249,7 +250,8 @@ card=re.search(r'<div class="card"><h2>'+username+r'.*?action="/admin/permission
 assert 'name="config_access"' in admin_page and '> Config</label>' in admin_page
 uid=card.group(1);postform(f'/admin/permissions/users/{uid}/set',{'invoice_generator':'on','sms_nonconforming':'on','training_role':'viewer'})
 limited=requests.Session();check(limited.post(BASE+'/login',data={'username':username,'password':'parity-pass-2026'},allow_redirects=False),302)
-portal=check(limited.get(BASE+'/')).text
+assert 'Edit home page' not in check(limited.get(BASE+'/')).text
+portal=check(limited.get(BASE+'/?portal=invoice-generator')).text
 assert '"trainingRole":"viewer"' in portal and '"config"' not in re.search(r'"invoiceChildren":\[(.*?)\]',portal).group(1)
 assert 'id="nav-config"' not in portal and 'id="page-config"' not in portal
 check(limited.get(BASE+'/?portal=invoice-generator&client=config'),403)
@@ -361,3 +363,37 @@ ev=check(anon_api.get(BASE+'/api/v1/audit/events',params={'action':'inventory.ap
 keys_page=check(s.get(BASE+'/admin/api-keys')).text;kid=re.search(r'/admin/api-keys/(\d+)/revoke',keys_page).group(1)
 postform(f'/admin/api-keys/{kid}/revoke',{});check(anon_api.get(BASE+'/api/v1/invoices/prices',headers=H),401)
 print('PASS: audit log pages/export and integration API keys, reads, ingest and revocation')
+
+# Home hub: seeded content, explicit editor permission, links with targets, sanitized bulletins.
+home=check(s.get(BASE+'/home')).text
+assert 'QUICK LINKS' in home and 'Remote NGERP access' in home and 'home-link-highlight' in home and 'USSI Spam Filter' in home,home[-1500:]
+check(limited.get(BASE+'/home/edit'),403)
+check(limited.post(BASE+'/home/sections/new',data={'title':'x','kind':'links','col':'1'}),403)
+r=s.post(BASE+'/home/sections/new',data={'title':'Parity Links','kind':'links','col':'2'},allow_redirects=False);check(r,302);sec_id=re.search(r'home-section-(\d+)',r.headers['Location']).group(1)
+postform(f'/home/sections/{sec_id}/links/new',{'label':'Parity tab link','url':'https://example.com/tab','target':'tab','style':'highlight','description':'opens elsewhere'})
+postform(f'/home/sections/{sec_id}/links/new',{'label':'Parity window link','url':'/training-tracker/','target':'window'})
+r=s.post(BASE+'/home/sections/'+sec_id+'/links/new',data={'label':'bad','url':'javascript:alert(1)'},allow_redirects=False);check(r,302);assert 'error=' in r.headers['Location']
+postform(f'/home/sections/{sec_id}/update',{'title':'Parity Links','subtitle':'sub','note_text':'Everyone may use these','note_style':'alert'})
+home=check(s.get(BASE+'/home')).text
+assert 'href="https://example.com/tab" target="_blank" rel="noopener noreferrer">Parity tab link' in home,home[-3000:]
+assert 'data-open="window">Parity window link' in home and 'home-link-highlight' in home and 'javascript:' not in home
+assert '<p class="home-note home-note-alert">Everyone may use these</p>' in home
+r=s.post(BASE+'/home/sections/new',data={'title':'Parity Bulletin','kind':'bulletin','col':'3'},allow_redirects=False);check(r,302);bul_id=re.search(r'home-section-(\d+)',r.headers['Location']).group(1)
+dirty='<p onclick="steal()">Hello <strong>team</strong></p><script>alert(1)</script><a href="javascript:alert(2)">bad</a> <a href="https://ok.example/x?a=1&b=2" target="_blank">good</a><img src=x onerror=alert(3)><mark>note</mark>'
+postform(f'/home/sections/{bul_id}/update',{'title':'Parity Bulletin','body_html':dirty})
+home=check(s.get(BASE+'/home')).text
+assert '<p>Hello <strong>team</strong></p>' in home and '<mark>note</mark>' in home,home[-3000:]
+assert '<script' not in home and 'onclick' not in home and 'onerror' not in home and 'javascript:' not in home and '<img' not in home
+assert '<a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>' in home
+assert '>bad</a>' not in home and 'bad' in home,'unsafe link should be reduced to text'
+# grant the editor permission to the limited user, then they can edit but still not administer
+postform(f'/admin/permissions/users/{uid}/set',{'training_role':'viewer','home_editor':'on'})
+check(limited.get(BASE+'/home/edit'))
+check(limited.post(BASE+'/home/banner',data={'banner':'PARITY LINKS'}),200)
+assert 'PARITY LINKS' in check(limited.get(BASE+'/home')).text
+check(limited.get(BASE+'/admin/permissions',allow_redirects=False),302)
+postform('/home/banner',{'banner':'QUICK LINKS'})
+postform(f'/home/sections/{sec_id}/delete',{});postform(f'/home/sections/{bul_id}/delete',{})
+assert 'Parity Links' not in check(s.get(BASE+'/home')).text
+assert 'home.section_deleted' in check(s.get(BASE+'/admin/audit',params={'action':'home.'})).text
+print('PASS: home hub content, editor permission, link targets and bulletin sanitizing')

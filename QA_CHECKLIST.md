@@ -45,6 +45,8 @@ Steps 1–5 below were completed by GitHub Actions run `35183539818` (Lucee 7.1.
 - **Audit log:** filter by your own username and confirm the last hour of actions is complete; export CSV and open it in Excel (values starting with `=` must appear as text).
 - **Pricing:** change a Philips rate, generate a Philips invoice, open the workbook and confirm the *Breakdown* unit-price cells and the total both reflect the new rate; reset to defaults.
 
+- **Home hub:** as a Home Page Editor, fill in a few real addresses from the old intranet, add a bulletin with bold text and a link that opens in a new tab, move a section between columns, and confirm a user without the permission sees the page but not the *Edit home page* button. Images in bulletins are not supported yet (paste is plain-text only).
+
 ## Manual browser checks (not automated)
 
 - Keyboard: tab through the review tables; dynamically rendered inputs now carry `aria-label`s.
