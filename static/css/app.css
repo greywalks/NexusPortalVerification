@@ -1027,3 +1027,31 @@ button.icon { padding: 2px 8px; font-size: .85rem; line-height: 1.4; min-width: 
 .sidebar-brand { background: transparent; }
 .sidebar-nav { position: relative; }
 [data-theme="light"] .sidebar { box-shadow: 1px 0 0 var(--sidebar-border), 6px 0 24px -20px rgba(15, 23, 42, .25); }
+
+/* ═══ Sidebar: alignment and active-state fixes ══════════════════════════ */
+/* Legacy sub-pages are siblings of the live module links, not children. */
+.nav-group-items .nav-soon { margin: 0; padding: 0; border-left: 0; }
+.nav-group-items .nav-soon .side-sublink.soon-item {
+  display: flex; align-items: center; min-height: 30px; padding: 0 10px; margin: 1px 0;
+  font-size: 12.5px; font-weight: 500; color: var(--text-muted); border-radius: 7px; line-height: 1.25;
+}
+.nav-group-items .side-link { line-height: 1.25; padding-top: 5px; padding-bottom: 5px; }
+
+/* Portal-level button (e.g. "Invoice Generator" when an OEM is selected) is a
+   parent, not the current page: text only, no tint, no marker. */
+.nav-group-items .side-link.portal-nav-btn.active { background: transparent; color: var(--text); font-weight: 600; }
+.nav-group-items .side-link.portal-nav-btn.active::before { display: none; }
+
+/* OEM tree under Invoice Generator: same rail and indent as everything else. */
+.nav-group-items .sidebar-sub-body { margin: 0; padding: 0; }
+.nav-group-items .sidebar-sub-body .sidebar-section-label { margin: 8px 0 2px; padding: 0 10px; }
+.nav-group-items .sidebar-sub-body .side-link.nav-btn { min-height: 30px; }
+.nav-group-items .sidebar-sub-body .side-link.nav-btn.active { background: transparent; color: var(--text); font-weight: 600; }
+.nav-group-items .sidebar-sub-body .side-link.nav-btn.active::before { display: none; }
+.nav-group-items .sidebar-sub-body .sidebar-sub { margin: 0 0 4px 10px; padding-left: 8px; }
+/* Only the leaf that is actually open gets the tint and marker. */
+.nav-group-items .sidebar-sub .side-sublink.active { position: relative; background: rgba(var(--accent-rgb), .08); color: var(--accent); }
+.nav-group-items .sidebar-sub .side-sublink.active::before { content: ""; position: absolute; left: -9px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--accent); }
+/* A client with no visible sub-tabs (AMC, TCL, Philips) is itself the leaf. */
+.nav-group-items .sidebar-sub-body .side-link.nav-btn.active:not(:has(+ .sidebar-sub:not(.hidden))) { background: rgba(var(--accent-rgb), .08); color: var(--accent); }
+.nav-group-items .sidebar-sub-body .side-link.nav-btn.active:not(:has(+ .sidebar-sub:not(.hidden)))::before { display: block; left: -9px; }
