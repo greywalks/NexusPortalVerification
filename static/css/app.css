@@ -917,3 +917,22 @@ button.icon { padding: 2px 8px; font-size: .85rem; line-height: 1.4; min-width: 
 .home-editor mark { background: #fff59d; color: #1a1a1a; }
 .home-editor a { color: var(--accent); }
 @media (max-width: 900px) { .home-edit-links, .home-edit-links thead, .home-edit-links tbody, .home-edit-links tr, .home-edit-links td { display: block; width: auto !important; } .home-edit-links thead { display: none; } .home-edit-links tr { padding: 8px 0; border-bottom: 1px solid var(--border, #475569); } }
+
+/* ── Condensed, grouped sidebar ───────────────────────────────────────── */
+.sidebar-nav { padding: 10px 10px; }
+.sidebar-nav .side-link { padding: 6px 10px; font-size: .84rem; margin: 1px 0; }
+.sidebar-section-label { margin: 12px 10px 4px; font-size: .62rem; }
+.nav-group { margin: 2px 0; }
+.nav-group-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; background: transparent; color: var(--text-sub); font: inherit; font-size: .74rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; border-radius: 8px; cursor: pointer; text-align: left; }
+.nav-group-toggle:hover { background: var(--sidebar-hover); color: var(--text); }
+.nav-group-toggle svg { width: 15px; height: 15px; flex-shrink: 0; opacity: .8; }
+.nav-group-toggle .chev { margin-left: auto; font-size: 1rem; line-height: 1; transition: transform .15s ease; opacity: .7; }
+.nav-group.open > .nav-group-toggle .chev { transform: rotate(90deg); }
+.nav-group-items { display: none; padding-left: 6px; margin: 0 0 4px 12px; border-left: 1px solid var(--sidebar-border); }
+.nav-group.open > .nav-group-items { display: block; }
+.nav-group-items .side-link { font-size: .82rem; padding: 5px 9px; }
+.nav-group-items .sidebar-sub { margin-left: 12px; }
+.nav-group-items .sidebar-sub-body .sidebar-section-label { margin-top: 6px; }
+.side-link.placeholder { color: var(--text-muted); cursor: default; opacity: .75; text-transform: uppercase; font-size: .74rem; font-weight: 700; letter-spacing: .06em; padding: 7px 10px; }
+.side-link.placeholder:hover { background: transparent; color: var(--text-muted); }
+.side-link.placeholder .soon { margin-left: auto; font-size: .58rem; font-weight: 600; letter-spacing: .08em; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--sidebar-border); text-transform: uppercase; opacity: .8; }

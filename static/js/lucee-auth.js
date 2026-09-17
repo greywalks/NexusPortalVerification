@@ -27,6 +27,7 @@
 
   function enforceNav() {
     const adminNav = document.getElementById('portal-nav-admin-permissions');
+    ['portal-nav-audit-log','portal-nav-api-keys'].forEach(function (id) { const el = document.getElementById(id); if (el && superadmin) el.classList.remove('hidden'); });
     if (superadmin && adminNav) adminNav.classList.remove('hidden');
     if (!superadmin) {
       if (!sections.has('invoice-generator')) {
