@@ -110,6 +110,12 @@ jobs:
           echo "Fixtures HTTP: $code"; head -c 3000 fixtures.body; echo
           test "$code" = "200"
 
+      - name: Home hub diagnostic (sanitizer and link validation on Lucee)
+        run: |
+          code=$(curl -sS -o home-diag.json -w '%{http_code}' http://127.0.0.1:5000/tests/home_parity.cfm)
+          echo "Home diag HTTP: $code"; cat home-diag.json; echo
+          test "$code" = "200"
+
       - name: Verify full authenticated parity workflows
         env:
           USSI_NEXUS_TEST_URL: http://127.0.0.1:5000
@@ -119,7 +125,7 @@ jobs:
         if: failure()
         run: |
           echo "--- captured responses ---"
-          for f in admin.body fixtures.body training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
+          for f in admin.body fixtures.body home-diag.json training.headers training.body inventory.body nonconforming.json storage-prices.json; do if [ -f "$f" ]; then echo "--- $f ---"; head -c 8000 "$f"; echo; fi; done
           echo "--- USSI Nexus application errors ---"
           find "$HOME/.CommandBox/server" -type f -name 'ussi_nexus.log' -print -exec tail -n 80 {} \; || true
           echo "--- application log tail ---"

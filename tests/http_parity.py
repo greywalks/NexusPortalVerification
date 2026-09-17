@@ -381,7 +381,8 @@ postform(f'/home/sections/{sec_id}/links/new',{'label':'Parity window link','url
 r=s.post(BASE+'/home/sections/'+sec_id+'/links/new',data={'label':'bad','url':'javascript:alert(1)'},allow_redirects=False);check(r,302);assert 'error=' in r.headers['Location']
 postform(f'/home/sections/{sec_id}/update',{'title':'Parity Links','subtitle':'sub','note_text':'Everyone may use these','note_style':'alert'})
 home=check(s.get(BASE+'/home')).text
-assert 'href="https://example.com/tab" target="_blank" rel="noopener noreferrer">Parity tab link' in home,home[-3000:]
+diag=s.get(BASE.replace('/index.cfm','')+'/tests/home_parity.cfm').text
+assert 'href="https://example.com/tab" target="_blank" rel="noopener noreferrer">Parity tab link' in home,(diag[:3000],home[-1500:])
 assert 'data-open="window">Parity window link' in home and 'home-link-highlight' in home and 'javascript:' not in home
 assert '<p class="home-note home-note-alert">Everyone may use these</p>' in home
 r=s.post(BASE+'/home/sections/new',data={'title':'Parity Bulletin','kind':'bulletin','col':'3'},allow_redirects=False);check(r,302);bul_id=re.search(r'home-section-(\d+)',r.headers['Location']).group(1)
