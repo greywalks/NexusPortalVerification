@@ -133,8 +133,13 @@ component output=false {
     // ---- sanitizer -------------------------------------------------------------
     // Everything is HTML-encoded first; only the tags below are then restored,
     // and <a> keeps just a validated href plus an optional new-tab target.
+    // Minimal escaper (& < > " ') — unlike encodeForHtml it leaves "/" alone so
+    // closing tags and URLs stay recognisable to the patterns below.
+    string function htmlEscape(required string text) {
+        return replace(replace(replace(replace(replace(arguments.text, "&", "&amp;", "all"), "<", "&lt;", "all"), ">", "&gt;", "all"), '"', "&quot;", "all"), "'", "&##39;", "all");
+    }
     string function sanitizeHtml(required string html) {
-        var enc = encodeForHtml(arguments.html);
+        var enc = htmlEscape(arguments.html);
         // Simple tags without attributes (any attributes present are discarded).
         for (var tag in ["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h3", "h4", "blockquote", "mark", "s"]) {
             enc = reReplaceNoCase(enc, "&lt;" & tag & "(\s.*?)?\s*/?&gt;", "<" & tag & ">", "all");
@@ -151,8 +156,9 @@ component output=false {
             var hm = reFindNoCase("href=&quot;(.*?)&quot;", attrs, 1, true);
             if (arrayLen(hm.pos) > 1 && hm.pos[2]) href = safeUrl(replace(mid(attrs, hm.pos[2], hm.len[2]), "&amp;", "&", "all"));
             if (reFindNoCase("target=&quot;_blank&quot;", attrs)) target = ' target="_blank" rel="noopener noreferrer"';
-            out &= len(href) ? '<a href="' & encodeForHtmlAttribute(href) & '"' & target & '>' : "";
             rest = mid(rest, m.pos[1] + m.len[1], len(rest));
+            if (len(href)) out &= '<a href="' & htmlEscape(href) & '"' & target & '>';
+            else rest = reReplaceNoCase(rest, "&lt;/a\s*&gt;", "", "one"); // drop the closer of the anchor we removed
         }
         out = reReplaceNoCase(out, "&lt;/a\s*&gt;", "</a>", "all");
         // Balance stray closers we could not pair: cheap safety, browsers ignore extras.

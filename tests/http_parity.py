@@ -382,10 +382,8 @@ r=s.post(BASE+'/home/sections/new',data={'title':'Parity Bulletin','kind':'bulle
 dirty='<p onclick="steal()">Hello <strong>team</strong></p><script>alert(1)</script><a href="javascript:alert(2)">bad</a> <a href="https://ok.example/x?a=1&b=2" target="_blank">good</a><img src=x onerror=alert(3)><mark>note</mark>'
 postform(f'/home/sections/{bul_id}/update',{'title':'Parity Bulletin','body_html':dirty})
 home=check(s.get(BASE+'/home')).text
-assert '<p>Hello <strong>team</strong></p>' in home and '<mark>note</mark>' in home,home[-3000:]
-assert '<script' not in home and 'onclick' not in home and 'onerror' not in home and 'javascript:' not in home and '<img' not in home
-assert '<a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>' in home
-assert '>bad</a>' not in home and 'bad' in home,'unsafe link should be reduced to text'
+bul=re.search(r'id="home-section-'+bul_id+r'".*?<div class="home-bulletin">(.*?)</div></section>',home,re.S).group(1)
+assert bul=='<p>Hello <strong>team</strong></p>&lt;script&gt;alert(1)&lt;/script&gt;bad <a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>&lt;img src=x onerror=alert(3)&gt;<mark>note</mark>',bul
 # grant the editor permission to the limited user, then they can edit but still not administer
 postform(f'/admin/permissions/users/{uid}/set',{'training_role':'viewer','home_editor':'on'})
 check(limited.get(BASE+'/home/edit'))
