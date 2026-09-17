@@ -390,7 +390,9 @@ dirty='<p onclick="steal()">Hello <strong>team</strong></p><script>alert(1)</scr
 postform(f'/home/sections/{bul_id}/update',{'title':'Parity Bulletin','body_html':dirty})
 home=check(s.get(BASE+'/home')).text
 bul=re.search(r'id="home-section-'+bul_id+r'".*?<div class="home-bulletin">(.*?)</div></section>',home,re.S).group(1)
-assert bul=='<p>Hello <strong>team</strong></p>&lt;script&gt;alert(1)&lt;/script&gt;bad <a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>&lt;img src=x onerror=alert(3)&gt;<mark>note</mark>',bul
+# Lucee's scriptProtect rewrites "<script" in form fields to "<invalidTag" before our sanitizer sees it; both spellings are escaped text.
+expected_bul='<p>Hello <strong>team</strong></p>&lt;{tag}&gt;alert(1)&lt;/script&gt;bad <a href="https://ok.example/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">good</a>&lt;img src=x onerror=alert(3)&gt;<mark>note</mark>'
+assert bul in (expected_bul.format(tag='script'),expected_bul.format(tag='invalidTag')),bul
 # grant the editor permission to the limited user, then they can edit but still not administer
 postform(f'/admin/permissions/users/{hub_uid}/set',{'home_editor':'on'})
 check(limited.get(BASE+'/home/edit'))
