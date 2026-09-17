@@ -3,11 +3,12 @@
 function homeAttr(required string v){return application.home.escapeHubText(arguments.v);}
 function homeCanEdit(required struct u){return val(arguments.u.is_superadmin?:0)==1||application.auth.hasAccess(arguments.u,"home","editor");}
 function homeRequireEditor(){var u=requireLogin();if(!homeCanEdit(u))htmlOut(workspaceShellStart(u,"home","Home")&'<div class="card" role="alert"><h2>Editing not permitted</h2><p>Your account does not have the Home Page Editor permission. Ask an administrator to grant it under User Management.</p><p><a class="btn" href="/home">&larr; Back to Home</a></p></div>'&workspaceShellEnd(),403);return u;}
-function homeLinkHtml(required struct l){var label=encodeForHtml(l.label);var cls="home-link home-link-"&encodeForHtmlAttribute(l.style?:"normal");var url=len(l.url?:"")?l.url:"";var out="";
-    if(!len(url))out='<span class="'&cls&' home-link-unset" title="No address set">'&label&'</span>';
-    else if((l.target?:"same")=="tab")out='<a class="'&cls&'" href="'&homeAttr(url)&'" target="_blank" rel="noopener noreferrer">'&label&'</a>';
-    else if((l.target?:"same")=="window")out='<a class="'&cls&'" href="'&homeAttr(url)&'" target="_blank" rel="noopener noreferrer" data-open="window">'&label&'</a>';
-    else out='<a class="'&cls&'" href="'&homeAttr(url)&'">'&label&'</a>';
+function homeLinkHtml(required struct l){var label=encodeForHtml(l.label);var cls="home-link home-link-"&encodeForHtmlAttribute(l.style?:"normal");// never name a local "url"/"form"/"session": Lucee resolves those to the scopes
+    var address=len(l.url?:"")?l.url:"";var out="";
+    if(!len(address))out='<span class="'&cls&' home-link-unset" title="No address set">'&label&'</span>';
+    else if((l.target?:"same")=="tab")out='<a class="'&cls&'" href="'&homeAttr(address)&'" target="_blank" rel="noopener noreferrer">'&label&'</a>';
+    else if((l.target?:"same")=="window")out='<a class="'&cls&'" href="'&homeAttr(address)&'" target="_blank" rel="noopener noreferrer" data-open="window">'&label&'</a>';
+    else out='<a class="'&cls&'" href="'&homeAttr(address)&'">'&label&'</a>';
     if(len(l.description?:""))out&='<span class="home-link-desc">'&encodeForHtml(l.description)&'</span>';return out;}
 function homeSectionHtml(required struct s){var h='<section class="home-section" id="home-section-'&s.id&'"><h3 class="home-section-title">'&encodeForHtml(s.title)&'</h3>';
     if(len(s.subtitle?:""))h&='<p class="home-section-sub">'&encodeForHtml(s.subtitle)&'</p>';
